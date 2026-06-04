@@ -1,0 +1,17 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Generated output files
+DeliveryReport_*.csv
+
+# Sample PDFs directory (Dropzone)
+samples/*
+!samples/.gitkeep
+
+# Archive/Bin directory
+archive/*
+!archive/.gitkeep
