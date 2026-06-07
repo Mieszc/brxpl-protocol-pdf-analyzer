@@ -62,7 +62,7 @@ To make sure your original files are never altered, deleted, or misplaced, the t
 
 * **Master Folder**: The folder containing your actual original database. **The tool never changes anything here.**
 * **Dropzone Folder (e.g., `samples/Dostawcy-kopia`)**: This is your sandbox. You copy the PDFs you want to process and paste them here. The tool only reads from these copies.
-* **Archive Folder (e.g., `archive/`)**: When the tool successfully finishes, it automatically moves the entire Dropzone folder here as a safeguard, leaving your `samples/` directory completely clean for the next run.
+* **Archive Folder (e.g., `archive/`)**: When the tool successfully finishes, it automatically moves the entire Dropzone folder here as a safeguard, leaving your Dropzone folder completely empty and clean for the next run.
 * **Output Folder**: The folder where your final Excel spreadsheets are saved.
 
 > [!WARNING]

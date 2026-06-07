@@ -82,30 +82,28 @@ The developer installs Python and the two required packages on the client machin
 
 ## 4. CLI Interaction Flow
 
-The script uses sequential `input()` prompts. All validation happens immediately after each entry. On invalid input, the same prompt is re-asked with an inline error message. The user can press `Ctrl+C` at any point to abort.
+The script uses a combination of path confirmations and sequential `input()` prompts. All validation happens immediately after each entry. On invalid input, the same prompt is re-asked with an inline error message. The user can press `Ctrl+C` at any point to abort.
 
-```
+```text
 ─────────────────────────────────────────────
   Delivery Protocol Analyzer
 ─────────────────────────────────────────────
 
   Configure this run:
 
-  [1/4]  Output folder [/Users/jan/Documents/DeliveryReports]: ↵
+  [1/4]  Output folder [/Users/MIESZKO/Desktop/output-protocols-analyzed]: ↵
          ✓ confirmed
 
-  [2/4]  Protocols folder path: /Users/jan/Documents/Protocols
-         ✓ Protocols/ found — 3 suppliers detected
+  [2/4]  Dropzone folder path: /Users/MIESZKO/.../samples/Dostawcy-kopia
+         ✓ Dropzone/ found
 
-  [3/4]  Date from (DD.MM.YYYY): 01.05.2026
-
-  [4/4]  Date to   (DD.MM.YYYY): 31.05.2026
+  [3/4]  Date from (DD.MM.YYYY): 01.01.2026
+  [4/4]  Date to   (DD.MM.YYYY): 07.06.2026
 
 ─────────────────────────────────────────────
   Ready to run
-  Window:    01.05.2026 → 31.05.2026
-  Suppliers: KK, BRX, NORDDEUTSCHE
-  Output:    /Users/jan/Documents/DeliveryReports/
+  Window:    01.01.2026 → 07.06.2026
+  Output:    /Users/MIESZKO/Desktop/output-protocols-analyzed
 ─────────────────────────────────────────────
   Press Enter to start or Ctrl+C to abort: ↵
 
@@ -114,20 +112,18 @@ The script uses sequential `input()` prompts. All validation happens immediately
 
 ### Prompt specifications
 
-| Step | Prompt | Default | Validation | Re-prompt on failure |
+| Step | Prompt / Confirmation | Default | Validation | Re-prompt on failure |
 |---|---|---|---|---|
-| 1 | Output folder | Hardcoded constant at top of script | Path exists or can be created | Yes — show reason |
-| 2 | Protocols folder path | None | Path exists, `Protocols/` subfolder present, at least one supplier subfolder present | Yes — show exact missing element |
-| 3 | Date from | None | Parseable as DD.MM.YYYY, not in future | Yes — show format reminder |
+| 1 | Output folder path | Constant `OUTPUT_FOLDER` at top of script | Path exists or can be created | Yes — show reason |
+| 2 | Dropzone folder path | Constant `DROPZONE_FOLDER` at top of script | Path exists, is a directory, contains at least one protocol PDF | Halt if missing/empty |
+| 3 | Date from | None | Parseable as DD.MM.YYYY, not in future | Yes — show format/future error |
 | 4 | Date to | None | Parseable as DD.MM.YYYY, ≥ Date from | Yes — show reason |
 
-After step 4, the script displays a confirmation summary (suppliers detected, date window, output path) and waits for a final Enter before execution begins. This is the last point at which the user can abort without side effects.
+After step 4, the script displays a confirmation summary (date window, output path) and waits for a final Enter before execution begins.
 
 ### Output folder default
 
-A constant `OUTPUT_FOLDER` is defined at the top of `analyze.py`. The developer sets this once during installation. The user sees the current value at prompt [1/4] and can override it for a single run by typing a new path, or accept it with Enter.
-
-If the output folder does not exist, the script creates it automatically.
+A constant `OUTPUT_FOLDER` is defined at the top of `analyze.py`. The developer sets this once during installation. The user sees the current value at prompt [1/4] and can accept it with Enter, or override it by typing a new path. If it does not exist, the script creates it automatically.
 
 ---
 
@@ -135,27 +131,33 @@ If the output folder does not exist, the script creates it automatically.
 
 ### 5.1 Expected Folder Tree
 
+To ensure original data remains secure and untouched, the system implements a safe folder contract:
+* **Master Folder** (`MASTER_FOLDER`): The original archive of all supplier folders. **The script never alters or deletes anything here.**
+* **Dropzone Folder** (`DROPZONE_FOLDER`): The sandbox directory where files are processed. The user copies PDFs to this folder.
+* **Archive Folder** (`ARCHIVE_FOLDER`): Holds processed folder sets temporarily after a successful run.
+
+The dropzone expects the following tree:
 ```
-{root}/
-└── Protocols/
-    └── {SupplierCode}/          ← e.g. KK, BRX  (one folder per smelter)
-        └── {Year}/              ← e.g. 2026      (four-digit year)
-            └── {DeliveryNumber}/← e.g. 56589     (numeric delivery ID)
-                ├── Sampling protocol 56589A.pdf
-                ├── Sampling protocol 56589B.pdf
+{DROPZONE_FOLDER}/
+└── {SupplierName}/              ← e.g. Cronimet Nordic (supplier directory name)
+    └── {Year}/                  ← e.g. 2026 (four-digit year)
+        └── {Month}/             ← e.g. 03 (two-digit month, 01-12)
+            └── {DeliveryNumber}/← e.g. 26002238 (numeric delivery ID)
+                ├── Sampling protocol 26002238.pdf
                 └── [other files — ignored silently]
 ```
 
-`{root}` is the folder the user provides at prompt [2/4]. The script expects `Protocols/` as a direct child of root.
+> **Wrapper Folder Independence:** If the user wraps the supplier folders in an arbitrary folder inside `{DROPZONE_FOLDER}` (e.g. `{DROPZONE_FOLDER}/{WrapperFolder}/Supplier/...`), the script automatically and dynamically traverses the tree to locate the supplier directories by searching for folders containing 4-digit year directories. This makes execution completely agnostic to wrapper folder names (like `Dostawcy-kopia`).
 
 ### 5.2 Naming Conventions
 
 | Level | Format | Notes |
 |---|---|---|
-| Supplier folder | Alphanumeric string | Used verbatim as Smelter code in output. e.g. `KK`, `BRX` |
-| Year folder | 4-digit integer | e.g. `2026`. Multiple year folders traversed when date range spans years. |
-| Delivery folder | Numeric string | e.g. `56589`. Used as base delivery number in output. |
-| Protocol PDF | Starts with `Sampling protocol` or `Sampling_protocol` (case-insensitive), ends with `.pdf` | Files not matching this pattern inside a delivery folder are silently ignored. |
+| Supplier folder | Alphanumeric string | Used only as folder structure. Not used for Smelter Code logic. |
+| Year folder | 4-digit integer | e.g. `2026`. Used to determine the prefix matching for Smelter Code logic. |
+| Month folder | 2-digit integer | e.g. `01` to `12`. Traversed sequentially to find deliveries. |
+| Delivery folder | Numeric string | e.g. `56589` or `26002238`. If the folder starts with the last 2 digits of the year (e.g. `26`), Smelter Code is `BRX`. Otherwise, it is `KK`. |
+| Protocol PDF | Starts with `Sampling protocol` or `Sampling_protocol` (case-insensitive), ends with `.pdf` | Files not matching this pattern are ignored silently. |
 
 ### 5.3 Files to Ignore
 
@@ -172,9 +174,7 @@ No error is raised for ignored files. They are not mentioned in terminal output.
 A delivery folder containing **more than one** matching protocol PDF is a **multi-position delivery**.
 A delivery folder containing **exactly one** matching protocol PDF is a **single-position delivery**.
 
-This classification is based on the total count of matching PDFs in the folder, regardless of how many fall within the date window.
-
-This distinction affects the output delivery number format — see Section 9.2.
+This classification is based on the total count of matching PDFs in the folder, regardless of how many fall within the date window. This distinction affects the output delivery number format — see Section 9.2.
 
 ---
 
@@ -184,26 +184,26 @@ This distinction affects the output delivery number format — see Section 9.2.
 
 | Template ID | Issuer | Language |
 |---|---|---|
-| **KV** | KOVOHUTY, a.s. | English only |
+| **KV** | KOVOHUTY, a.s. | English / Slovakian |
 | **BRX** | MONTANWERKE BRIXLEGG AKTIENGESELLSCHAFT | German + English bilingual |
 
-**Parser strategy:** Anchor exclusively on English-language label strings. These are consistent across both templates. Do not rely on page coordinates, visual layout, or line order.
+**Parser strategy:** Support multilingual vocabulary mapping across English, German, and Slovakian to handle regional variations, bilingual labels, and layout extraction anomalies (where values appear on German/Slovakian label lines instead of English lines).
 
 ### 6.2 Fields Extracted
 
-The script extracts exactly the following fields from each protocol PDF. No other fields are read.
+The script extracts exactly the following fields from each protocol PDF.
 
-| Field | English label anchor | Used for | Notes |
+| Field | Multilingual Label Anchor Options | Used for | Notes |
 |---|---|---|---|
-| Finalization date | `Date:` (last occurrence in document) | Date-window filtering + CSV output | Format: `DD.MM.YYYY` |
+| Finalization date | `Date:` or `Datum:` (last occurrence in document) | Date-window filtering + CSV output | Format: `DD.MM.YYYY` |
 | Position number | `Pos.` | Delivery number construction + duplicate detection | Integer, e.g. `01`, `02` |
-| Wet weight | `Wet weight [kg]:` | CSV output | European number format |
-| Moisture | `Moisture [%]:` | CSV output | European number format |
-| Dry weight | `Dry weight [kg]:` | CSV output + calculation base | European number format |
-| Silver | `Ag` followed by value and `g/t` in Results section | Calculation | Optional — 0 if absent |
-| Gold | `Au` followed by value and `g/t` in Results section | Calculation | Optional — 0 if absent |
-| Palladium | `Pd` followed by value and `g/t` in Results section | Calculation | Optional — 0 if absent |
-| Platinum | `Pt` followed by value and `g/t` in Results section | Calculation | Optional — 0 if absent |
+| Wet weight | `Wet weight`, `Nassgewicht`, `mokrá/vlhká hmotnosť`, `Feuchtgewicht` | CSV output | European number format |
+| Moisture | `Moisture`, `Nässe`, `Feuchtigkeit`, `Feuchte`, `vlhkosť` | CSV output | European number format |
+| Dry weight | `Dry weight`, `Trockengewicht`, `suchá hmotnosť`, `sušina`, `hmotnosť za sucha` | CSV output + calculation base | European number format |
+| Silver | `Ag` followed by value and `g/t` | Calculation | Optional — 0 if absent |
+| Gold | `Au` followed by value and `g/t` | Calculation | Optional — 0 if absent |
+| Palladium | `Pd` followed by value and `g/t` | Calculation | Optional — 0 if absent |
+| Platinum | `Pt` followed by value and `g/t` | Calculation | Optional — 0 if absent |
 
 **Fields explicitly ignored:**
 - `Date of receipt:` — not extracted, not used anywhere.
@@ -216,9 +216,9 @@ The script extracts exactly the following fields from each protocol PDF. No othe
 
 Every PDF contains two date-like fields:
 - `Date of receipt:` — arrival date at smelter. **Ignored entirely.**
-- `Date:` — finalization/signing date at bottom of document. **This is the one used.**
+- `Date:` / `Datum:` — finalization/signing date at bottom of document. **This is the one used.**
 
-Since `Date of receipt:` also contains the word `Date`, the parser must take the **last match** of the pattern `Date:\s*\d{2}\.\d{2}\.\d{4}` in the full extracted text to reliably land on the finalization date.
+Since `Date of receipt:` also contains the word `Date`, the parser must take the **last match** of the pattern `(?:Date|Datum):\s*\d{2}\.\d{2}\.\d{4}` in the full extracted text.
 
 ### 6.4 Position Field
 
@@ -226,53 +226,53 @@ The `Pos.` field contains an integer (sometimes zero-padded: `01`, `02`). Parse 
 1. Construct the delivery number suffix in the output CSV.
 2. Detect duplicate positions within a delivery folder.
 
-Note: Kovohuty (KV) encodes the position in the filename letter suffix (A, B). Brixlegg (BRX) does not. The `Pos.` field inside the PDF is the authoritative source for position identification for both templates.
-
 ### 6.5 Number Format
 
 All numeric values use European locale notation: dot = thousands separator, comma = decimal separator.
 
 **Parsing rule:** Strip all `.` characters, replace `,` with `.`, then parse as float.
 
-| PDF value | Parsed float |
-|---|---|
-| `14.520` | `14520.0` |
-| `1.039,0000` | `1039.0` |
-| `3,9700` | `3.97` |
-| `22.145` | `22145.0` |
-| `0,00` | `0.0` |
-
 ### 6.6 Extraction Strategy
 
-Use `pdfplumber` to extract full page text as a single string. Apply regex patterns anchored to the English label strings defined above.
+Use `pdfplumber` to extract full page text as a single string. Apply regex patterns with vocabulary alternatives:
 
 ```python
 import re
 
 # Finalization date — take last match
-re.findall(r"Date:\s*(\d{2}\.\d{2}\.\d{4})", text)[-1]
+re.findall(r"(?:Date|Datum):\s*(\d{2}\.\d{2}\.\d{4})", text, re.IGNORECASE)[-1]
 
 # Position number
 re.search(r"Pos\.?\s*(\d+)", text)
 
-# Wet weight
-re.search(r"Wet weight \[kg\]:\s*([\d.,]+)", text, re.IGNORECASE)
+# Wet weight (English, German, Slovakian)
+re.search(
+    r"(?:Wet[ \t]*weight|Nassgewicht|mokr[aá][ \t]*hmotnos[tť]|vlhk[aá][ \t]*hmotnos[tť]|Feuchtgewicht|hmotnos[tť][ \t]*za[ \t]*mokra)"
+    r"(?:[ \t]*\[?kg\]?)?[ \t]*:[ \t]*([\d.,]+)",
+    text, re.IGNORECASE
+)
 
-# Moisture
-re.search(r"Moisture \[%\]:\s*([\d.,]+)", text, re.IGNORECASE)
+# Moisture (English, German, Slovakian)
+re.search(
+    r"(?:Moisture|N[aä]sse|Feuchtigkeit|Feuchte|vlhkos[tť])"
+    r"(?:[ \t]*\[?%\]?)?[ \t]*:[ \t]*([\d.,]+)",
+    text, re.IGNORECASE
+)
 
-# Dry weight
-re.search(r"Dry weight \[kg\]:\s*([\d.,]+)", text, re.IGNORECASE)
+# Dry weight (English, German, Slovakian)
+re.search(
+    r"(?:Dry[ \t]*weight|Trockengewicht|such[aá][ \t]*hmotnos[tť]|su[sš]ina|hmotnos[tť][ \t]*za[ \t]*sucha)"
+    r"(?:[ \t]*\[?kg\]?)?[ \t]*:[ \t]*([\d.,]+)",
+    text, re.IGNORECASE
+)
 
-# Precious metals — only match value followed by g/t
+# Precious metals
 re.search(r"\bAg\s+([\d.,]+)\s*g/t", text, re.IGNORECASE)
 re.search(r"\bAu\s+([\d.,]+)\s*g/t", text, re.IGNORECASE)
 re.search(r"\bPd\s+([\d.,]+)\s*g/t", text, re.IGNORECASE)
 re.search(r"\bPt\s+([\d.,]+)\s*g/t", text, re.IGNORECASE)
 ```
-
-The parser must tolerate variable whitespace between labels and values, and must function correctly when precious metal lines are absent.
-
+```
 ---
 
 ## 7. Processing Pipeline
@@ -280,112 +280,103 @@ The parser must tolerate variable whitespace between labels and values, and must
 ### 7.1 Algorithm
 
 ```
-FUNCTION run(root_path, date_from, date_to):
+FUNCTION run(date_from, date_to):
 
-  1. Validate root_path → Protocols/ → at least one supplier folder.
-     Halt with specific error on any failure (see Section 11).
+  1. Validate path settings and folder permissions:
+     - Master Folder exists and contains files.
+     - Dropzone Folder exists and contains at least one protocol PDF.
+     - Output & Archive Folders are writable.
+     Halt with clean error on pre-flight failure (see Section 11).
 
-  2. suppliers = sorted subdirectories of Protocols/  (alphabetical)
+  2. suppliers = sorted subdirectories of Dropzone Folder (alphabetical)
 
-  3. years_needed = all calendar years spanned by [date_from, date_to]
+  3. years_needed = calendar years spanned by [date_from, date_to]
 
   4. result_rows = []
-     excluded_log = []
+     protocols_processed = 0
+     protocols_excluded = 0
+     protocols_failed = 0
 
   5. FOR each supplier in suppliers:
        FOR each year in years_needed:
-         year_path = Protocols/{supplier}/{year}/
+         year_path = Dropzone/{supplier}/{year}/
          IF year_path does not exist → skip silently
 
-         delivery_folders = sorted subdirectories of year_path (ascending)
+         FOR each month in 01..12:
+           month_path = Dropzone/{supplier}/{year}/{month}/
+           IF month_path does not exist → skip silently
 
-         FOR each delivery_folder in delivery_folders:
+           delivery_folders = sorted subdirectories of month_path (ascending)
 
-           protocol_files = files in delivery_folder matching naming pattern
-                            (see Section 5.3), sorted ascending by filename
+           FOR each delivery_folder in delivery_folders:
+             protocol_files = files in delivery_folder matching naming pattern
+                              (Section 5.3), sorted ascending by filename
 
-           IF len(protocol_files) == 0 → skip silently
+             IF len(protocol_files) == 0 → skip silently
 
-           is_multi_position = len(protocol_files) > 1
+             DUPLICATE POSITION CHECK (before processing files):
+               positions_seen = {}
+               FOR each file in protocol_files:
+                 - Verify file exists in MASTER_FOLDER. Halt if missing (Safety Verification).
+                 - Extract Pos. field from PDF.
+                 - IF pos in positions_seen → HALT → ERROR_DUPLICATE_PROTOCOL
+                 positions_seen[pos] = file
 
-           DUPLICATE CHECK (before processing any files):
-             positions_seen = {}
-             FOR each file in protocol_files:
-               pos = extract Pos. field from PDF text
-               IF pos in positions_seen:
-                 HALT → ERROR_DUPLICATE_PROTOCOL
-                        (report both file paths + delivery folder)
-               positions_seen[pos] = file
+             FOR each pdf_file in protocol_files:
+               protocols_processed += 1
+               
+               - Attempt text extraction & parsing of weights/dates
+               IF parse fails (e.g. unreadable file or missing weight fields):
+                 - Log red [FAIL] message in terminal with specific error reason.
+                 - protocols_failed += 1
+                 - CONTINUE (exclude the file from CSV but continue execution)
 
-           FOR each pdf_file in protocol_files:
-             text = pdfplumber.extract_text(pdf_file)
-             IF extraction fails → HALT → ERROR_FILE_UNREADABLE
+               IF date NOT in [date_from, date_to]:
+                 - Log [--] status in terminal.
+                 - protocols_excluded += 1
+                 - CONTINUE (exclude from CSV but continue execution)
 
-             fin_date = parse finalization date
-             IF parsing fails → HALT → ERROR_DATE_UNDETECTABLE
+               - Calculate precious metal quantities in kg (rounded to 5 decimals).
+               - Determine smelter_code based on delivery_folder prefix.
+               - Format delivery_number (append "-{pos}" if multi-position).
 
-             IF fin_date NOT in [date_from, date_to]:
-               excluded_log.append({file: pdf_file, date: fin_date, reason: "outside window"})
-               CONTINUE  ← skip to next file, do not halt
-
-             pos = parse Pos. field (integer)
-             IF parsing fails → HALT → ERROR_POSITION_MISSING
-
-             wet_weight = parse Wet weight [kg]
-             moisture   = parse Moisture [%]
-             dry_weight = parse Dry weight [kg]
-             IF any of above fail → HALT → ERROR_WEIGHT_MISSING
-
-             ag_gt = parse Ag g/t  (default 0 if absent)
-             au_gt = parse Au g/t  (default 0 if absent)
-             pd_gt = parse Pd g/t  (default 0 if absent)
-             pt_gt = parse Pt g/t  (default 0 if absent)
-
-             ag_kg = ag_gt * dry_weight / 1_000_000  (5 decimal places)
-             au_kg = au_gt * dry_weight / 1_000_000
-             pd_kg = pd_gt * dry_weight / 1_000_000
-             pt_kg = pt_gt * dry_weight / 1_000_000
-
-             IF is_multi_position:
-               delivery_number = f"{delivery_folder}-{pos}"
-             ELSE:
-               delivery_number = delivery_folder
-
-             result_rows.append({
-               smelter_code:    supplier folder name,
-               delivery_number: delivery_number,
-               delivery_date:   fin_date,
-               quantity_kg:     wet_weight,
-               h2o_pct:         moisture,
-               dry_quant_kg:    dry_weight,
-               ag_kg, au_kg, pd_kg, pt_kg
-             })
+               result_rows.append({
+                 smelter_code, delivery_number, delivery_date,
+                 quantity_kg, h2o_pct, dry_quant_kg,
+                 ag_kg, au_kg, pd_kg, pt_kg
+               })
+               - Log [OK] status in terminal.
 
   6. SORT result_rows:
-       primary:   smelter_code ascending (alphabetical)
+       primary:   smelter_code ascending
        secondary: delivery_number ascending (natural sort on numeric base)
        tertiary:  position number ascending
 
   7. ASSIGN Lp: sequential integer starting at 1
 
-  8. COMPUTE totals row (see Section 8.2)
+  8. COMPUTE totals row (Section 8.2)
 
-  9. WRITE CSV (see Section 9)
+  9. WRITE CSV (Section 9)
 
-  10. PRINT run summary to terminal (see Section 10)
+  10. PRINT run summary (processed, included, excluded, failed) to terminal.
+
+  11. ARCHIVE & CLEANUP:
+      - Move Dropzone Folder to Archive Folder (renaming with unique suffix if exists).
+      - Recreate empty Dropzone Folder? NO. Exclude/Delete completely from samples.
+      - Prompt user to verify CSV:
+        - Press Enter → delete the temporary archive folder.
+        - Press Ctrl+C → keep the temporary archive folder.
 ```
 
 ### 7.2 Date Range and Year Traversal
 
 - Both `date_from` and `date_to` are inclusive.
-- If the date range spans two calendar years (e.g. `15.12.2025` → `15.01.2026`), the script must look inside both `2025/` and `2026/` year folders for every supplier.
-- The date used for filtering is always the finalization date (`Date:`) from the PDF — never the file system modification date, never `Date of receipt`.
+- If the date range spans calendar years, the script traverses all spanned year folders.
+- The date used for filtering is the finalization date (`Date:`/`Datum:`) parsed from the PDF.
 
 ### 7.3 Duplicate Detection
 
-A duplicate is defined as: two or more PDF files within the same delivery folder whose `Pos.` field value resolves to the same integer.
-
-Duplicate detection runs before any file in that delivery folder is processed. On detection: halt immediately, report both conflicting file paths and the delivery folder path, do not write any output.
+A duplicate is defined as: two or more PDF files within the same delivery folder whose `Pos.` field value resolves to the same integer. Duplicate detection runs before any file in that delivery folder is processed. On detection: halt immediately, report both conflicting file paths and the delivery folder path, and do not write any output.
 
 ---
 
@@ -496,50 +487,52 @@ Written to the confirmed output folder. If a file with the same name already exi
 
 For each protocol file processed, print one status line:
 
-```
-  [OK]  KK / 2026 / 56589-1  →  finalized 15.05.2026
-  [OK]  KK / 2026 / 56589-2  →  finalized 15.05.2026
-  [--]  KK / 2026 / 57100-1  →  finalized 12.04.2026  (outside window)
-  [OK]  BRX / 2026 / 26002658-1  →  finalized 22.05.2026
+```text
+  [OK]  Cronimet Nordic / 2026 / 26002238  →  finalized 24.03.2026
+  [OK]  Cronimet Nordic / 2026 / 26002239  →  finalized 24.03.2026
+  [--]  Cronimet Nordic / 2026 / 57100-1  →  finalized 12.04.2026  (outside window)
+  [FAIL] Cronimet Nordic / 2026 / Sampling protocol 26002658.pdf  →  Missing Wet weight [kg] field
 ```
 
 - `[OK]` — protocol extracted and included in results.
 - `[--]` — protocol detected, finalization date outside window, excluded from results.
-- `[ERR]` — error encountered (see Section 11). Followed by halt.
+- `[FAIL]` — extraction error (corrupt file, missing weight/date fields). The file is excluded, but the run continues.
 
 ### 10.2 Run Summary (on success)
 
 Printed after the CSV is written:
 
-```
+```text
 ─────────────────────────────────────────────
   Run complete
 ─────────────────────────────────────────────
-  Protocols processed:   23
-  Deliveries included:   12
-  Protocols excluded:     5  (outside window — see above)
+  Protocols processed:   104
+  Deliveries included:   33
+  Protocols excluded:    50
+  Protocols failed:      0
 
   Output written to:
-  /Users/jan/Documents/DeliveryReports/DeliveryReport_01052026_31052026.csv
+  /Users/MIESZKO/Desktop/output-protocols-analyzed/DeliveryReport_01012026_07062026.csv
 ─────────────────────────────────────────────
 ```
 
-"Protocols processed" = total PDFs that matched the naming pattern and were opened.
-"Deliveries included" = count of unique delivery folder names that contributed at least one row.
-"Protocols excluded" = PDFs opened successfully but whose finalization date fell outside the window.
+- **Protocols processed**: Total PDFs that matched the naming pattern and were opened.
+- **Deliveries included**: Count of unique delivery numbers that contributed at least one row.
+- **Protocols excluded**: PDFs whose finalization date fell outside the window.
+- **Protocols failed**: PDFs with parsing errors that were skipped.
 
 ### 10.3 Error Output (on halt)
 
-```
+```text
 ─────────────────────────────────────────────
   [ERR]  Run halted — duplicate protocol detected
 
   Delivery folder:
-    /Users/jan/Documents/Protocols/KK/2026/56589/
+    /Users/MIESZKO/Desktop/.../samples/Dostawcy-kopia/Amra/2026/03/57001/
 
   Conflicting files:
-    Sampling protocol 56589A.pdf  (Pos. 01)
-    Sampling protocol 56589C.pdf  (Pos. 01)
+    Sampling protocol 57001A.pdf  (Pos. 01)
+    Sampling protocol 57001B.pdf  (Pos. 01)
 
   Both files claim position 01. Remove or rename the
   duplicate before rerunning.
@@ -548,30 +541,6 @@ Printed after the CSV is written:
 ─────────────────────────────────────────────
 ```
 
-No partial CSV is ever written on error. The output file either exists and is complete, or does not exist.
-
----
-
-## 11. Error Catalog
-
-All errors halt execution immediately. No partial results are written.
-
-### Structure and Path Errors
-
-| Code | Trigger | Message shown |
-|---|---|---|
-| `E01` | Root path does not exist or is not a directory | `Path not found: {path}. Please enter a valid folder path.` |
-| `E02` | `Protocols/` folder missing inside root | `"Protocols" folder not found inside {root}. Expected: {root}/Protocols/` |
-| `E03` | No supplier subfolders found inside `Protocols/` | `No supplier folders found inside Protocols/. The folder appears to be empty.` |
-
-### File Errors
-
-| Code | Trigger | Message shown |
-|---|---|---|
-| `E04` | PDF cannot be opened or yields no extractable text | `Cannot read file: {path}. File may be corrupted, password-protected, or a scanned image.` |
-| `E05` | Two files in same delivery folder share the same Pos. value | `Duplicate position detected in {delivery_folder}. Files: {file1} and {file2} both claim Pos. {n}. Remove the duplicate and rerun.` |
-
-### Data Extraction Errors
 
 | Code | Trigger | Message shown |
 |---|---|---|
