@@ -35,7 +35,7 @@
 
 The Delivery Protocol Analyzer is a Python CLI script that processes sampling protocol PDFs from a structured local folder, extracts delivery weight and precious metal assay data, and exports the results as a semicolon-delimited CSV file.
 
-The user launches the script in a terminal. The script prompts for the protocols folder path, a date range, and confirms the output location. It then traverses the folder tree, identifies all sampling protocols whose finalization date falls within the specified window, extracts and calculates the relevant values, and writes a CSV file to a predefined output folder.
+The user launches the script in a terminal. The script prompts for the protocols folder path, a date range, and confirms the output location. It then traverses the folder tree, identifies all sampling protocols whose date of receipt falls within the specified window, extracts and calculates the relevant values, and writes a CSV file to a predefined output folder.
 
 No data is stored at any point. No network access occurs. The script has no UI beyond the terminal.
 
@@ -46,7 +46,7 @@ No data is stored at any point. No network access occurs. The script has no UI b
 ### Goals
 
 - Parse machine-readable sampling protocol PDFs from two smelter templates (KV and BRX) in a layout-tolerant way.
-- Filter deliveries by finalization date against a user-defined date range.
+- Filter deliveries by date of receipt against a user-defined date range.
 - Extract weight data and precious metal assay concentrations and convert them to kilograms with 5 decimal place precision.
 - Produce a semicolon-delimited CSV matching the defined output structure.
 - Log all processing activity, skipped files, exclusions, and errors clearly in the terminal.
@@ -195,7 +195,7 @@ The script extracts exactly the following fields from each protocol PDF.
 
 | Field | Multilingual Label Anchor Options | Used for | Notes |
 |---|---|---|---|
-| Finalization date | `Date:` or `Datum:` (last occurrence in document) | Date-window filtering + CSV output | Format: `DD.MM.YYYY` |
+| Date of receipt | `Date of receipt` / `Eingangsdatum` / Slovak equivalent or first date fallback | Date-window filtering + CSV output | Format: `DD.MM.YYYY` |
 | Position number | `Pos.` | Delivery number construction + duplicate detection | Integer, e.g. `01`, `02` |
 | Wet weight | `Wet weight`, `Nassgewicht`, `mokrá/vlhká hmotnosť`, `Feuchtgewicht` | CSV output | European number format |
 | Moisture | `Moisture`, `Nässe`, `Feuchtigkeit`, `Feuchte`, `vlhkosť` | CSV output | European number format |
@@ -212,13 +212,13 @@ The script extracts exactly the following fields from each protocol PDF.
 - Mixture / lot breakdown percentages — not extracted.
 - Supplier name, contract number, material name, sample number, plate/container number — not extracted.
 
-### 6.3 Finalization Date — Label Disambiguation
+### 6.3 Date of Receipt — Label Disambiguation
 
 Every PDF contains two date-like fields:
-- `Date of receipt:` — arrival date at smelter. **Ignored entirely.**
-- `Date:` / `Datum:` — finalization/signing date at bottom of document. **This is the one used.**
+- `Date of receipt:` / `Eingangsdatum` (or Slovak equivalent) — arrival date at smelter. **This is the one used.**
+- `Date:` / `Datum:` — finalization/signing date at bottom of document. **Ignored entirely.**
 
-Since `Date of receipt:` also contains the word `Date`, the parser must take the **last match** of the pattern `(?:Date|Datum):\s*\d{2}\.\d{2}\.\d{4}` in the full extracted text.
+The parser first checks for specific labels (`Date of receipt`, `Eingangsdatum`, `Dátum prijatia`, `Dátum dodania`, `Dátum doručenia`). If it doesn't find them, it falls back to extracting the **first date** formatted as `DD.MM.YYYY` found in the full extracted text.
 
 ### 6.4 Position Field
 
@@ -239,8 +239,8 @@ Use `pdfplumber` to extract full page text as a single string. Apply regex patte
 ```python
 import re
 
-# Finalization date — take last match
-re.findall(r"(?:Date|Datum):\s*(\d{2}\.\d{2}\.\d{4})", text, re.IGNORECASE)[-1]
+# Date of receipt — primary label match, then fallback
+# (pseudo-code regexes represented here)
 
 # Position number
 re.search(r"Pos\.?\s*(\d+)", text)
@@ -372,7 +372,7 @@ FUNCTION run(date_from, date_to):
 
 - Both `date_from` and `date_to` are inclusive.
 - If the date range spans calendar years, the script traverses all spanned year folders.
-- The date used for filtering is the finalization date (`Date:`/`Datum:`) parsed from the PDF.
+- The date used for filtering is the date of receipt (`Date of receipt`/`Eingangsdatum`) parsed from the PDF.
 
 ### 7.3 Duplicate Detection
 
@@ -444,7 +444,7 @@ The dry weight value is read directly from the PDF (`Dry weight [kg]:` field) an
 |---|---|---|---|---|
 | 1 | `Lp` | Generated | Integer | — |
 | 2 | `Delivery number` | Folder name + Pos. field | String | — |
-| 3 | `Delivery date` | PDF `Date:` (finalization date) | String | `DD.MM.YYYY` |
+| 3 | `Delivery date` | PDF `Date of receipt` | String | `DD.MM.YYYY` |
 | 4 | `Smelter code` | Supplier folder name | String | — |
 | 5 | `Quantity kg` | PDF `Wet weight [kg]:` | Float | 3 decimal places |
 | 6 | `H2O[%]` | PDF `Moisture [%]:` | Float | 2 decimal places |
@@ -495,7 +495,7 @@ For each protocol file processed, print one status line:
 ```
 
 - `[OK]` — protocol extracted and included in results.
-- `[--]` — protocol detected, finalization date outside window, excluded from results.
+- `[--]` — protocol detected, date of receipt outside window, excluded from results.
 - `[FAIL]` — extraction error (corrupt file, missing weight/date fields). The file is excluded, but the run continues.
 
 ### 10.2 Run Summary (on success)
@@ -518,7 +518,7 @@ Printed after the CSV is written:
 
 - **Protocols processed**: Total PDFs that matched the naming pattern and were opened.
 - **Deliveries included**: Count of unique delivery numbers that contributed at least one row.
-- **Protocols excluded**: PDFs whose finalization date fell outside the window.
+- **Protocols excluded**: PDFs whose date of receipt fell outside the window.
 - **Protocols failed**: PDFs with parsing errors that were skipped.
 
 ### 10.3 Error Output (on halt)
@@ -544,7 +544,7 @@ Printed after the CSV is written:
 
 | Code | Trigger | Message shown |
 |---|---|---|
-| `E06` | Finalization date cannot be parsed from PDF text | `Cannot extract finalization date from: {path}. File was read but no valid date found. Verify the file manually.` |
+| `E06` | Date of receipt cannot be parsed from PDF text | `Cannot extract date of receipt from: {path}. File was read but no valid date found. Verify the file manually.` |
 | `E07` | Pos. field cannot be parsed | `Cannot extract position number (Pos.) from: {path}.` |
 | `E08` | Wet weight, moisture, or dry weight cannot be parsed | `Cannot extract weight data from: {path}. Missing fields: {field_list}.` |
 | `E09` | File opens and text is extracted but none of the expected fields are found | `File opened but no recognisable data found: {path}. Template may be unsupported.` |

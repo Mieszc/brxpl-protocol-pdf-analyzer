@@ -51,7 +51,7 @@ The parser maps the three critical weight/moisture fields across English, German
 * **Unit and spacing tolerance**: Patterns like `(?:[ \t]*\[?kg\]?)?[ \t]*:[ \t]*([\d.,]+)` make the brackets and units optional, tolerating different spacing and separators (e.g., `Wet weight: 1.23` vs `Nassgewicht [kg] : 1.23`).
 
 ### 2.2 Date and Position Disambiguation
-* **Date Selection**: Every PDF has multiple date fields (`Date of receipt:` and `Date:`). The parser uses `re.findall` and takes the **last match** in the document to select the finalization date (`Date:` or `Datum:`), avoiding the receipt date.
+* **Date Selection**: Every PDF has multiple date fields (`Date of receipt:` and `Date:`). The parser uses `re.findall` to find specific labels like `Date of receipt` or `Eingangsdatum`. If not found, it falls back to capturing the first `DD.MM.YYYY` date found in the text. This replaces the previous logic which relied on the finalization date (`Date:` or `Datum:`).
 * **Non-Halting Strategy**: Previously, a parse error on a single corrupt or empty PDF would halt the entire script execution. The engine now operates on a **non-halting fail-safe strategy**: if extraction fails, it logs `[FAIL]` with a specific reason, increments `protocols_failed`, and continues processing the rest of the folders.
 
 ---

@@ -27,11 +27,21 @@ for pdf_path in sorted(samples_root.rglob("*.pdf")):
             for page in pdf.pages:
                 text += page.extract_text() or ""
             
-            # Try both Date: and Datum: patterns (KV uses Date:, BRX uses Datum:)
-            dates = re.findall(r"(?:Date|Datum):\s*(\d{2}\.\d{2}\.\d{4})", text)
-            if dates:
-                fin_date = dates[-1]
-                month = fin_date.split(".")[1]
+            # Try Date of receipt labels, fallback to first date in file
+            receipt_date = None
+            label_matches = re.findall(
+                r"(?:Date of receipt|Eingangsdatum|D[aá]tum prijatia|D[aá]tum dodania|D[aá]tum doru[cč]enia)\s*:\s*(\d{2}\.\d{2}\.\d{4})", 
+                text, re.IGNORECASE
+            )
+            if label_matches:
+                receipt_date = label_matches[0]
+            else:
+                fallback_matches = re.findall(r"\b(\d{2}\.\d{2}\.\d{4})\b", text)
+                if fallback_matches:
+                    receipt_date = fallback_matches[0]
+
+            if receipt_date:
+                month = receipt_date.split(".")[1]
                 
                 # Use earliest month for the delivery folder
                 if delivery_folder not in delivery_info:

@@ -139,7 +139,7 @@ W trakcie działania program wypisuje w terminalu status każdego sprawdzanego p
   ```text
   [OK]  Cronimet Nordic / 2026 / 26002238  →  finalized 24.03.2026
   ```
-* **`[--]`**: Plik PDF został odczytany poprawnie, lecz jego data podpisania wykracza poza wybrany zakres dat, dlatego został pominięty.
+* **`[--]`**: Plik PDF został odczytany poprawnie, lecz jego data dostawy/otrzymania wykracza poza wybrany zakres dat, dlatego został pominięty.
   ```text
   [--]  Cronimet Nordic / 2026 / 57100-1  →  finalized 12.04.2026  (outside window)
   ```

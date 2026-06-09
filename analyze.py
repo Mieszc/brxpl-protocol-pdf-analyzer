@@ -128,11 +128,24 @@ def extract_pdf_data(pdf_path):
     except Exception as e:
         return None, f"Nie można otworzyć lub odczytać pliku PDF: {str(e)}"
 
-    # Finalization date (last match)
-    date_matches = re.findall(r"(?:Date|Datum):\s*(\d{2}\.\d{2}\.\d{4})", text, re.IGNORECASE)
-    if not date_matches:
-        return None, "Brak lub nieczytelna data sfinalizowania Date/Datum"
-    fin_date_str = date_matches[-1]
+    # Date of receipt (First match of specific labels, fallback to first date found)
+    receipt_date_str = None
+    
+    # Primary check: Specific labels
+    label_matches = re.findall(
+        r"(?:Date of receipt|Eingangsdatum|D[aá]tum prijatia|D[aá]tum dodania|D[aá]tum doru[cč]enia)\s*:\s*(\d{2}\.\d{2}\.\d{4})", 
+        text, re.IGNORECASE
+    )
+    if label_matches:
+        receipt_date_str = label_matches[0]
+    else:
+        # Fallback check: First DD.MM.YYYY date in the document
+        fallback_matches = re.findall(r"\b(\d{2}\.\d{2}\.\d{4})\b", text)
+        if fallback_matches:
+            receipt_date_str = fallback_matches[0]
+            
+    if not receipt_date_str:
+        return None, "Brak lub nieczytelna data dostawy/otrzymania"
     
     # Position
     pos_match = re.search(r"Pos\.?\s*(\d+)", text)
@@ -190,13 +203,13 @@ def extract_pdf_data(pdf_path):
     if pt_match: pt = parse_number(pt_match.group(1))
     
     try:
-        dt = datetime.datetime.strptime(fin_date_str, "%d.%m.%Y").date()
+        dt = datetime.datetime.strptime(receipt_date_str, "%d.%m.%Y").date()
     except:
-        return None, f"Nieprawidłowy format daty: {fin_date_str}"
+        return None, f"Nieprawidłowy format daty: {receipt_date_str}"
 
     return {
         "date_dt": dt,
-        "date_str": fin_date_str,
+        "date_str": receipt_date_str,
         "pos": pos,
         "wet_weight": wet_weight,
         "moisture": moisture,
@@ -309,7 +322,7 @@ def main():
                             
                             if not (date_from <= data['date_dt'] <= date_to):
                                 protocols_excluded += 1
-                                console.print(f"  \\[--]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_dir.name)}  →  sfinalizowano {data['date_str']}  (poza zakresem)")
+                                console.print(f"  \\[--]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_dir.name)}  →  otrzymano {data['date_str']}  (poza zakresem)")
                                 continue
                                 
                             delivery_number = f"{delivery_dir.name}-{data['pos']}" if is_multi_position else delivery_dir.name
@@ -333,7 +346,7 @@ def main():
                                 'pd_kg': pd_kg,
                                 'pt_kg': pt_kg
                             })
-                            console.print(f"  \\[OK]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_number)}  →  sfinalizowano {data['date_str']}")
+                            console.print(f"  \\[OK]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_number)}  →  otrzymano {data['date_str']}")
 
         # SORTING
         def get_sort_key(x):
