@@ -25,14 +25,13 @@ pip install -r requirements.txt
 - **`venv/`**: The isolated virtual environment containing installed packages. (Ignored in Git)
 
 ### Safe File Architecture
-- **`Master Folder`**: The live database (e.g., your actual protocols folder). The script NEVER modifies this.
-- **`Dropzone Folder` (e.g. `samples/`)**: Where you manually drop *copies* of PDFs. Requires a `.safe_dropzone` token.
-- **`Archive Folder` (e.g. `archive/`)**: The bin where processed files are moved. We never permanently delete.
-- **`Output Folder`**: Where the generated CSV reports are saved.
+- **`Master Folder` (`MASTER_FOLDER`)**: The baseline database of original supplier documents. The script strictly reads data directly from here and **never modifies it**.
+- **`Archive Folder` (`ARCHIVE_FOLDER`)**: The temporary directory where copies of processed and failed files are copied on completion for review.
+- **`Output Folder` (`OUTPUT_FOLDER`)**: Where the generated CSV reports are saved.
 
 ## Debugging Guide
 
-1. **Path Configuration**: At the top of `analyze.py`, find the section labeled `<INSERT_YOUR_PATH_HERE>`. Update the four path constants with your local testing paths.
+1. **Path Configuration**: At the top of `analyze.py`, find the path constants. Update them with your local testing paths.
 2. **Missing Dependencies Error**: If you see an `ImportError` or `Missing dependencies` message when running `analyze.py`, it means you forgot to activate the virtual environment (step 1 above).
-3. **Safety Token Missing**: If the script immediately fails with "Safety token missing!", ensure there is a `.safe_dropzone` file in your designated Dropzone Folder.
-4. **Master Verification Failure**: If the script fails complaining about "Original missing in Master", it means you accidentally *moved* a file into the dropzone instead of copying it. Move it back to the master folder and make a copy!
+3. **IDE / Interpreter Selection**: If your IDE displays import warnings for `pdfplumber` or `rich`, set your IDE's Python interpreter to point to the local `venv/` directory.
+

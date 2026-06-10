@@ -91,14 +91,11 @@ The script uses a combination of path confirmations and sequential `input()` pro
 
   Configure this run:
 
-  [1/4]  Output folder [/Users/MIESZKO/Desktop/output-protocols-analyzed]: ↵
+  [1/3]  Output folder [/Users/MIESZKO/Desktop/output-protocols-analyzed]: ↵
          ✓ confirmed
 
-  [2/4]  Dropzone folder path: /Users/MIESZKO/.../samples/Dostawcy-kopia
-         ✓ Dropzone/ found
-
-  [3/4]  Date from (DD.MM.YYYY): 01.01.2026
-  [4/4]  Date to   (DD.MM.YYYY): 07.06.2026
+  [2/3]  Date from (DD.MM.YYYY): 01.01.2026
+  [3/3]  Date to   (DD.MM.YYYY): 07.06.2026
 
 ─────────────────────────────────────────────
   Ready to run
@@ -115,11 +112,10 @@ The script uses a combination of path confirmations and sequential `input()` pro
 | Step | Prompt / Confirmation | Default | Validation | Re-prompt on failure |
 |---|---|---|---|---|
 | 1 | Output folder path | Constant `OUTPUT_FOLDER` at top of script | Path exists or can be created | Yes — show reason |
-| 2 | Dropzone folder path | Constant `DROPZONE_FOLDER` at top of script | Path exists, is a directory, contains at least one protocol PDF | Halt if missing/empty |
-| 3 | Date from | None | Parseable as DD.MM.YYYY, not in future | Yes — show format/future error |
-| 4 | Date to | None | Parseable as DD.MM.YYYY, ≥ Date from | Yes — show reason |
+| 2 | Date from | None | Parseable as DD.MM.YYYY, not in future | Yes — show format/future error |
+| 3 | Date to | None | Parseable as DD.MM.YYYY, ≥ Date from | Yes — show reason |
 
-After step 4, the script displays a confirmation summary (date window, output path) and waits for a final Enter before execution begins.
+After step 3, the script displays a confirmation summary (date window, output path) and waits for a final Enter before execution begins.
 
 ### Output folder default
 
@@ -131,14 +127,13 @@ A constant `OUTPUT_FOLDER` is defined at the top of `analyze.py`. The developer 
 
 ### 5.1 Expected Folder Tree
 
-To ensure original data remains secure and untouched, the system implements a safe folder contract:
-* **Master Folder** (`MASTER_FOLDER`): The original archive of all supplier folders. **The script never alters or deletes anything here.**
-* **Dropzone Folder** (`DROPZONE_FOLDER`): The sandbox directory where files are processed. The user copies PDFs to this folder.
-* **Archive Folder** (`ARCHIVE_FOLDER`): Holds processed folder sets temporarily after a successful run.
+To ensure original data remains secure and untouched, the system implements a strict read-only folder contract:
+* **Master Folder** (`MASTER_FOLDER`): The original database of all supplier folders. **The script reads files directly from here but never alters, moves, or deletes anything.**
+* **Archive Folder** (`ARCHIVE_FOLDER`): Holds copies of successfully processed files and failed files temporarily after a successful run.
 
-The dropzone expects the following tree:
+The master folder expects the following tree:
 ```
-{DROPZONE_FOLDER}/
+{MASTER_FOLDER}/
 └── {SupplierName}/              ← e.g. Cronimet Nordic (supplier directory name)
     └── {Year}/                  ← e.g. 2026 (four-digit year)
         └── {Month}/             ← e.g. 03 (two-digit month, 01-12)
@@ -147,7 +142,7 @@ The dropzone expects the following tree:
                 └── [other files — ignored silently]
 ```
 
-> **Wrapper Folder Independence:** If the user wraps the supplier folders in an arbitrary folder inside `{DROPZONE_FOLDER}` (e.g. `{DROPZONE_FOLDER}/{WrapperFolder}/Supplier/...`), the script automatically and dynamically traverses the tree to locate the supplier directories by searching for folders containing 4-digit year directories. This makes execution completely agnostic to wrapper folder names (like `Dostawcy-kopia`).
+> **Wrapper Folder Independence:** If the user wraps the supplier folders in an arbitrary folder inside `{MASTER_FOLDER}` (e.g. `{MASTER_FOLDER}/{WrapperFolder}/Supplier/...`), the script automatically and dynamically traverses the tree to locate the supplier directories by searching for folders containing 4-digit year directories. This makes execution completely agnostic to wrapper folder names.
 
 ### 5.2 Naming Conventions
 
@@ -284,26 +279,27 @@ FUNCTION run(date_from, date_to):
 
   1. Validate path settings and folder permissions:
      - Master Folder exists and contains files.
-     - Dropzone Folder exists and contains at least one protocol PDF.
      - Output & Archive Folders are writable.
      Halt with clean error on pre-flight failure (see Section 11).
 
-  2. suppliers = sorted subdirectories of Dropzone Folder (alphabetical)
+  2. suppliers = sorted subdirectories of Master Folder (alphabetical)
 
   3. years_needed = calendar years spanned by [date_from, date_to]
 
   4. result_rows = []
+     successfully_processed_files = []
+     failed_files = []
      protocols_processed = 0
      protocols_excluded = 0
      protocols_failed = 0
 
   5. FOR each supplier in suppliers:
        FOR each year in years_needed:
-         year_path = Dropzone/{supplier}/{year}/
+         year_path = Master/{supplier}/{year}/
          IF year_path does not exist → skip silently
 
          FOR each month in 01..12:
-           month_path = Dropzone/{supplier}/{year}/{month}/
+           month_path = Master/{supplier}/{year}/{month}/
            IF month_path does not exist → skip silently
 
            delivery_folders = sorted subdirectories of month_path (ascending)
@@ -317,7 +313,6 @@ FUNCTION run(date_from, date_to):
              DUPLICATE POSITION CHECK (before processing files):
                positions_seen = {}
                FOR each file in protocol_files:
-                 - Verify file exists in MASTER_FOLDER. Halt if missing (Safety Verification).
                  - Extract Pos. field from PDF.
                  - IF pos in positions_seen → HALT → ERROR_DUPLICATE_PROTOCOL
                  positions_seen[pos] = file
@@ -326,10 +321,11 @@ FUNCTION run(date_from, date_to):
                protocols_processed += 1
                
                - Attempt text extraction & parsing of weights/dates
-               IF parse fails (e.g. unreadable file or missing weight fields):
-                 - Log red [FAIL] message in terminal with specific error reason.
-                 - protocols_failed += 1
-                 - CONTINUE (exclude the file from CSV but continue execution)
+                IF parse fails (e.g. unreadable file or missing weight fields):
+                  - Log red [FAIL] message in terminal with specific error reason.
+                  - protocols_failed += 1
+                  - failed_files.append(pdf_file)
+                  - CONTINUE (exclude the file from CSV but continue execution)
 
                IF date NOT in [date_from, date_to]:
                  - Log [--] status in terminal.
@@ -340,12 +336,13 @@ FUNCTION run(date_from, date_to):
                - Determine smelter_code based on delivery_folder prefix.
                - Format delivery_number (append "-{pos}" if multi-position).
 
-               result_rows.append({
-                 smelter_code, delivery_number, delivery_date,
-                 quantity_kg, h2o_pct, dry_quant_kg,
-                 ag_kg, au_kg, pd_kg, pt_kg
-               })
-               - Log [OK] status in terminal.
+                result_rows.append({
+                  smelter_code, delivery_number, delivery_date,
+                  quantity_kg, h2o_pct, dry_quant_kg,
+                  ag_kg, au_kg, pd_kg, pt_kg
+                })
+                - Log [OK] status in terminal.
+                - successfully_processed_files.append(pdf_file)
 
   6. SORT result_rows:
        primary:   smelter_code ascending
@@ -361,11 +358,12 @@ FUNCTION run(date_from, date_to):
   10. PRINT run summary (processed, included, excluded, failed) to terminal.
 
   11. ARCHIVE & CLEANUP:
-      - Move Dropzone Folder to Archive Folder (renaming with unique suffix if exists).
-      - Recreate empty Dropzone Folder? NO. Exclude/Delete completely from samples.
+      - Create unique folders in Archive: `samples_run_X` and `failed_samples_run_X`
+      - Copy successfully processed files into `samples_run_X` maintaining original tree structure.
+      - Copy failed files into `failed_samples_run_X` maintaining original tree structure.
       - Prompt user to verify CSV:
-        - Press Enter → delete the temporary archive folder.
-        - Press Ctrl+C → keep the temporary archive folder.
+        - Press Enter → delete both temporary archive folders.
+        - Press Ctrl+C → keep the temporary archive folders for review.
 ```
 
 ### 7.2 Date Range and Year Traversal

@@ -9,26 +9,24 @@ This document provides end-to-end technical documentation for developers maintai
 The program is a modular, layout-tolerant Python CLI script (`analyze.py`) designed to scan, parse, and analyze smelter sampling protocols in PDF format, outputting the results into an Excel-ready semicolon-delimited CSV spreadsheet.
 
 ### 1.1 The Safe Folder Contract
-To protect billing databases from corruption or accidental loss, the program enforces a strict 4-folder pipeline:
-1. **Master Folder (`MASTER_FOLDER`)**: The baseline database of original supplier documents. **Never modified.**
-2. **Dropzone Folder (`DROPZONE_FOLDER`)**: The workspace sandbox (typically the `samples/` folder) where files are copied for processing.
-3. **Archive Folder (`ARCHIVE_FOLDER`)**: The temporary depository where processed file folders are moved on completion to keep the sandbox clean.
-4. **Output Folder (`OUTPUT_FOLDER`)**: The destination directory for the final CSV reports.
+To protect billing databases from corruption or accidental loss, the program enforces a strict 3-folder pipeline:
+1. **Master Folder (`MASTER_FOLDER`)**: The baseline database of original supplier documents. **Never modified.** The script strictly reads data directly from here.
+2. **Archive Folder (`ARCHIVE_FOLDER`)**: The temporary depository where successfully processed files and failed files are copied on completion for review.
+3. **Output Folder (`OUTPUT_FOLDER`)**: The destination directory for the final CSV reports.
 
 ```mermaid
 graph TD
-    A[Master Folder] -- Copy PDFs --> B[Dropzone Folder]
-    B -- Parse & Process --> C(analyze.py)
+    A[Master Folder] -- Parse & Process --> C(analyze.py)
     C -- Output Report --> D[Output Folder]
-    B -- Move on Success --> E[Archive Folder]
-    E -- User Clean-up Prompt --> F{Delete Archive?}
-    F -- Yes --> G[Disesmbark Disk Space]
-    F -- No --> H[Retain Files]
+    C -- Copy Processed & Failed --> E[Archive Folder]
+    E -- User Clean-up Prompt --> F{Delete Archive Copies?}
+    F -- Yes --> G[Free Disk Space]
+    F -- No --> H[Retain Copies]
 ```
 
 ### 1.2 Traversal Logic and Smelter Code Derivation
 The script traverses the directory structure using the contract:
-`{DROPZONE_FOLDER}/{SupplierName}/{Year}/{Month}/{DeliveryNumber}/`
+`{MASTER_FOLDER}/{SupplierName}/{Year}/{Month}/{DeliveryNumber}/`
 
 * **Smelter Code Logic**: The hute/smelter code is calculated based on the delivery folder name. If the delivery folder name starts with the last 2 digits of the Year folder (e.g. Year `2026` and Delivery `26002238`), the smelter code is assigned as `BRX` (Brixlegg). Otherwise, it defaults to `KK` (Kovohuty).
 
@@ -148,15 +146,10 @@ Below is a catalog of common developer/user issues, their root causes, and how t
 * **Root Cause**: The IDE's default python linter is pointed to the system global interpreter instead of the project venv.
 * **Fix**: Open the Command Palette (`Cmd + Shift + P` or `Ctrl + Shift + P`), select **`Python: Select Interpreter`**, and choose the interpreter inside the local `venv/` directory.
 
-### 5.3 preflight "Nie znaleziono folderu przejściowego (Dropzone)"
-* **Symptom**: The preflight check prints `Nie znaleziono folderu przejściowego (Dropzone)` and halts.
-* **Root Cause**: The directory specified by `DROPZONE_FOLDER` (usually the `samples/` directory) was deleted or renamed.
-* **Fix**: Create a folder named `samples/` in the root of the project. (The archiving step moves the wrapper directories inside `samples/` to the archive but keeps the `samples/` root folder intact to avoid this error).
-
-### 5.4 Preflight Failsafe: "Brak oryginału w bazie Master"
-* **Symptom**: The preflight check halts with `Brak oryginału w bazie Master: {path}`.
-* **Root Cause**: A file is present in the Dropzone but missing from the Master folder. This occurs if a user accidentally **moved** (cut-and-pasted) the files from Master instead of **copying** them.
-* **Fix**: Restore the missing file to the Master database path printed in the error log.
+### 5.3 Preflight Failsafe: "Folder główny (Master) jest pusty"
+* **Symptom**: The preflight check halts with `Folder główny (Master) jest pusty: {path}`.
+* **Root Cause**: The `MASTER_FOLDER` directory is empty.
+* **Fix**: Ensure the original database files are present in the Master directory.
 
 ### 5.5 Semicolon CSV opens in a single column in Excel
 * **Symptom**: The output `.csv` file is opened in Excel, but all data appears squeezed into a single column separated by semicolons.

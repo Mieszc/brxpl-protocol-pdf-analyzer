@@ -50,15 +50,14 @@ Jeżeli autor programu wprowadzi nowe funkcje wymagające aktualizacji bibliotek
 
 ## 2. Bezpieczny zestaw folderów roboczych
 
-Aby zagwarantować, że Twoje oryginalne pliki PDF nigdy nie zostaną uszkodzone, usunięte ani zagubione, program korzysta z bezpiecznego zestawu 4 folderów:
+Aby zagwarantować, że Twoje oryginalne pliki PDF nigdy nie zostaną uszkodzone, usunięte ani zagubione, program korzysta z bezpiecznego zestawu 3 folderów:
 
-* **Folder Główny (Master Folder)**: Folder zawierający oryginalną, nienaruszoną bazę dokumentów. **Program nigdy nic w nim nie zmienia ani nie usuwa.**
-* **Folder Przejściowy (Dropzone / `samples/`)**: Twój obszar roboczy (piaskownica). Kopiujesz tutaj pliki PDF, które chcesz przetworzyć w danym uruchomieniu. Program odczytuje dane wyłącznie z tych kopii.
-* **Folder Archiwum (`archive/`)**: Po pomyślnym zakończeniu pracy programu, cały folder z przetworzonymi plikami z Dropzone jest automatycznie przenoszony tutaj jako zabezpieczenie. Dzięki temu Twój obszar roboczy (Dropzone) pozostaje czysty i gotowy na kolejne uruchomienie.
+* **Folder Główny (Master Folder)**: Folder zawierający oryginalną, nienaruszoną bazę dokumentów. **Program tylko z niego odczytuje dane i nigdy nic w nim nie zmienia ani nie usuwa.**
+* **Folder Archiwum (`archive/`)**: Po pomyślnym zakończeniu pracy programu, wszystkie poprawnie przetworzone oraz błędne pliki są automatycznie kopiowane tutaj do oddzielnych podfolderów, z zachowaniem oryginalnej struktury katalogów. Dzięki temu zawsze możesz podejrzeć kopie plików dla danego uruchomienia.
 * **Folder Wyjściowy (Output Folder)**: Folder, w którym program zapisuje końcowe raporty w formacie CSV gotowe do otwarcia w programie Excel.
 
-> [!WARNING]
-> Zawsze **kopiuj i wklejaj** pliki do folderu przejściowego (Dropzone). Nigdy nie wycinaj ani nie przenoś tam oryginalnych plików bezpośrednio z folderu głównego (Master), aby uniknąć przypadkowego usunięcia oryginałów.
+> [!NOTE]
+> Z programu został usunięty koncept Dropzone. Od teraz uruchamiasz analizę bezpośrednio na bazie Master, a program wykonuje analizę tylko do odczytu, całkowicie chroniąc oryginalne pliki.
 
 ---
 
@@ -78,13 +77,11 @@ Gdy środowisko pomocnicze jest aktywne `(venv)`, uruchom program wpisując pole
 
 Po uruchomieniu program automatycznie sprawdza uprawnienia do folderów i zadaje kilka podstawowych pytań. Przy pytaniach zawierających domyślne ścieżki w nawiasach kwadratowych `[...]` możesz po prostu nacisnąć **Enter**, aby je zaakceptować, lub wpisać nową ścieżkę:
 
-1. **`[1/4] Output folder [sciezka_domyslna]:`**
+1. **`[1/3] Output folder [sciezka_domyslna]:`**
    * Wyświetla docelową lokalizację zapisu raportu. Naciśnij **Enter**, aby zatwierdzić, lub wpisz inną ścieżkę do folderu.
-2. **`[2/4] Dropzone folder path:`**
-   * Automatycznie potwierdza ścieżkę do folderu roboczego (Dropzone).
-3. **`[3/4] Date from (DD.MM.YYYY):`**
+2. **`[2/3] Date from (DD.MM.YYYY):`**
    * Wpisz datę początkową okresu rozliczeniowego (np. `01.05.2026`).
-4. **`[4/4] Date to (DD.MM.YYYY):`**
+3. **`[3/3] Date to (DD.MM.YYYY):`**
    * Wpisz datę końcową okresu (np. `07.06.2026`).
 
 ### Podsumowanie i start:
@@ -107,10 +104,10 @@ Po przejściu konfiguracji program wyświetli podsumowanie:
 Gdy program pomyślnie przetworzy pliki i zapisze arkusz CSV, wyświetli w terminalu komunikat dotyczący zarządzania miejscem na dysku:
 
 1. **Zweryfikuj raport:** Otwórz nowo utworzony plik CSV w programie Excel i sprawdź, czy wagi i sumy są poprawne.
-2. **Przejrzyj pliki źródłowe:** Cały przetworzony katalog dostaw został tymczasowo przeniesiony do folderu `archive/` jako zabezpieczenie (np. jako `archive/samples_run`). Możesz tam zajrzeć, jeśli potrzebujesz sprawdzić konkretne pliki PDF.
+2. **Przejrzyj kopie plików:** Pomyślnie przetworzone pliki zostały skopiowane do folderu `archive/samples_run_X`, a pliki, z którymi wystąpił błąd, do `archive/failed_samples_run_X`. Możesz tam zajrzeć, jeśli potrzebujesz sprawdzić konkretne pliki PDF.
 3. **Wybierz krok czyszczenia:**
-   * **Jeśli wyniki są poprawne (Usuń pliki z archiwum):** Naciśnij **Enter**. Program automatycznie usunie tymczasowy katalog z folderu `archive/`, aby nie zaśmiecać dysku.
-   * **Jeśli chcesz zachować lub odzyskać pliki (Zachowaj pliki):** Naciśnij **Ctrl+C**. Narzędzie zakończy działanie, pozostawiając spakowane pliki w folderze `archive/` nienaruszone.
+   * **Jeśli wyniki są poprawne (Usuń kopie z archiwum):** Naciśnij **Enter**. Program automatycznie usunie tymczasowe katalogi z folderu `archive/`, aby nie zaśmiecać dysku.
+   * **Jeśli chcesz zachować kopie plików (Zachowaj kopie):** Naciśnij **Ctrl+C**. Narzędzie zakończy działanie, pozostawiając skopiowane pliki w folderze `archive/` nienaruszone.
 
 ---
 
@@ -135,7 +132,7 @@ Teraz możesz bezpiecznie zamknąć okno programu Terminal, Wiersza poleceń lub
 
 W trakcie działania program wypisuje w terminalu status każdego sprawdzanego pliku PDF:
 
-* **`[OK]`**: Plik PDF został poprawnie odczytany, dane zostały dodane do raportu, a plik zostanie zarchiwizowany.
+* **`[OK]`**: Plik PDF został poprawnie odczytany, dane zostały dodane do raportu, a jego kopia zostanie zarchiwizowana do folderu pomyślnego uruchomienia.
   ```text
   [OK]  Cronimet Nordic / 2026 / 26002238  →  finalized 24.03.2026
   ```
@@ -148,7 +145,7 @@ W trakcie działania program wypisuje w terminalu status każdego sprawdzanego p
 
 ### Błędy krytyczne powodujące natychmiastowe zatrzymanie:
 * **Wykrycie duplikatu pozycji**: Dwa lub więcej plików PDF w tym samym folderze dostawy zgłaszają ten sam numer pozycji (`Pos.`).
-* **Weryfikacja bazy Master**: Jeśli w folderze głównym (Master) brakuje oryginalnego pliku, który znajduje się w folderze Dropzone (zabezpieczenie przed samowolnym przenoszeniem/usuwaniem plików).
+* **Weryfikacja bazy Master**: Jeśli w folderze głównym (Master) nie ma plików (folder jest pusty lub ścieżka jest nieprawidłowa).
 
 ---
 
@@ -181,7 +178,6 @@ DeliveryReport_{DDMMYYYY}_{DDMMYYYY}.csv
 Domyślne katalogi robocze są skonfigurowane w pliku `analyze.py` na samym początku w sekcji `# PATH CONFIGURATION`:
 * `OUTPUT_FOLDER`: Domyślna ścieżka zapisu raportów CSV.
 * `MASTER_FOLDER`: Ścieżka do oryginalnej bazy Master (zabezpieczenie).
-* `DROPZONE_FOLDER`: Ścieżka do Twojego folderu Dropzone (piaskownicy, domyślnie katalog `samples`).
 * `ARCHIVE_FOLDER`: Ścieżka do tymczasowego folderu archiwum.
 
 ### Uwaga dotycząca ścieżek systemowych Windows
@@ -190,6 +186,5 @@ W systemie Windows ścieżki do folderów zawierają ukośniki wsteczne (`\`). A
 ```python
 OUTPUT_FOLDER = r"C:\Uzytkownicy\Jan\Dokumenty\RaportyDostaw"
 MASTER_FOLDER = r"C:\Uzytkownicy\Jan\Pulpit\brxpl\Dostawcy"
-DROPZONE_FOLDER = r"C:\Uzytkownicy\Jan\Pulpit\brxpl-protocol-pdf-analyzer\samples"
 ARCHIVE_FOLDER = r"C:\Uzytkownicy\Jan\Pulpit\brxpl-protocol-pdf-analyzer\archive"
 ```

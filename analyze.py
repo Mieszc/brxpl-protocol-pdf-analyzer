@@ -1,3 +1,19 @@
+"""
+Delivery Protocol Analyzer
+
+This script automates the parsing and analysis of supplier delivery/sampling protocols in PDF format.
+It uses pdfplumber to extract text and regular expressions to parse key metrics, outputting 
+them into an Excel-ready semicolon-delimited CSV spreadsheet.
+
+SAFE ARCHITECTURE & THE 3-FOLDER CONTRACT:
+1. Master Folder (MASTER_FOLDER): Read-only baseline database containing the original PDFs.
+   The script never modifies, moves, or deletes any files in this folder.
+2. Archive Folder (ARCHIVE_FOLDER): Copies of successfully processed PDFs are saved in a temporary run folder
+   (e.g., samples_run_X), and failed PDFs in a parallel run folder (e.g., failed_samples_run_X).
+   This directory is created to allow users to verify the files and is cleanable after execution.
+3. Output Folder (OUTPUT_FOLDER): The destination directory for final CSV reports.
+"""
+
 import sys
 import csv
 import pathlib
@@ -6,6 +22,8 @@ import re
 import os
 import shutil
 
+# Verify that external dependencies are installed. Rich is used for terminal output formatting,
+# and pdfplumber is used to extract textual layout data from PDF documents.
 try:
     from rich.console import Console
     from rich.markup import escape
@@ -17,14 +35,22 @@ except ImportError:
 # ---------------------------------------------------------
 # PATH CONFIGURATION
 # ---------------------------------------------------------
+# Default folders for workspace operations. These can be adjusted by the user as needed.
 OUTPUT_FOLDER = "/Users/MIESZKO/Desktop/mlabsai-work-projects/clients/brxpl-spzoo/output-protocols-analyzed"
 MASTER_FOLDER = "/Users/MIESZKO/Desktop/brxpl/Dostawcy"
-DROPZONE_FOLDER = "/Users/MIESZKO/Desktop/mlabsai-work-projects/clients/brxpl-spzoo/smapling-protocol-analyzer/brxpl-protocol-pdf-analyzer/samples"
 ARCHIVE_FOLDER = "/Users/MIESZKO/Desktop/mlabsai-work-projects/clients/brxpl-spzoo/smapling-protocol-analyzer/brxpl-protocol-pdf-analyzer/archive"
 
+# Initialize the Rich console object for colorized/formatted terminal stdout prints
 console = Console()
 
 def check_write_permission(dir_path):
+    """
+    Checks if a directory is writable by attempting to create it if it doesn't 
+    exist, and then touching/deleting a temporary test file inside it.
+    
+    Returns:
+        bool: True if writable/creatable, False otherwise.
+    """
     path = pathlib.Path(dir_path)
     if not path.exists():
         try:
@@ -40,43 +66,24 @@ def check_write_permission(dir_path):
         return False
 
 def run_preflight_checks():
-    console.print("  Uruchamianie wstępnych testów bezpieczeństwa...")
-    # 1. Check if Dropzone exists and is a directory
-    token_path = pathlib.Path(DROPZONE_FOLDER)
-    if not token_path.exists() or not token_path.is_dir():
-        console.print(f"[bold red][ERR] Nie znaleziono folderu przejściowego (Dropzone): {escape(str(DROPZONE_FOLDER))}[/bold red]")
-        console.print(f"  Skopiuj folder '[bold]{token_path.name}[/bold]' z oryginalnej bazy (Master) do folderu '[bold]{token_path.parent.name}[/bold]' przed uruchomieniem programu.")
-        sys.exit(1)
-        
-    # 1b. Check if Dropzone contains any sampling protocol PDFs
-    pdf_found = False
-    try:
-        for p in token_path.rglob("*.pdf"):
-            if "sampling protocol" in p.name.lower() or "sampling_protocol" in p.name.lower():
-                pdf_found = True
-                break
-    except Exception as e:
-        console.print(f"[bold red][ERR] Nie można odczytać folderu Dropzone: {escape(str(e))}[/bold red]")
-        sys.exit(1)
-        
-    if not pdf_found:
-        console.print(f"[bold red][ERR] Folder Dropzone jest pusty lub nie zawiera plików PDF z protokołami dostaw: {escape(str(DROPZONE_FOLDER))}[/bold red]")
-        console.print("  Skopiuj pliki PDF z protokołami do folderu Dropzone przed uruchomieniem analizy.")
-        sys.exit(1)
+    """
+    Validates directories and permissions before beginning execution.
+    Halts the script immediately on failure to prevent runtime crashes.
     
-    # 2. Safety token check inside parent samples
-    safe_token = token_path.parent / ".safe_dropzone"
-    if not safe_token.exists():
-        # Ensure it exists since we didn't create it in the skeleton before
-        safe_token.touch()
-        
-    # 3. Check if Master folder exists and is a directory
+    Checks:
+    - Master folder exists, is a directory, and contains subfolders (is not empty).
+    - Output folder is writable.
+    - Archive folder is writable.
+    """
+    console.print("  Uruchamianie wstępnych testów bezpieczeństwa...")
+    
+    # 1. Verify that the Master directory exists
     master_path = pathlib.Path(MASTER_FOLDER)
     if not master_path.exists() or not master_path.is_dir():
         console.print(f"[bold red][ERR] Brakujący lub nieprawidłowy folder główny (Master): {escape(str(MASTER_FOLDER))}[/bold red]")
         sys.exit(1)
         
-    # 4. Check if Master folder is not empty
+    # 2. Verify that the Master directory is not empty
     try:
         next(master_path.iterdir())
     except StopIteration:
@@ -86,12 +93,12 @@ def run_preflight_checks():
         console.print(f"[bold red][ERR] Nie można odczytać folderu głównego (Master): {escape(str(e))}[/bold red]")
         sys.exit(1)
         
-    # 5. Check if Output folder is writable
+    # 3. Ensure the Output folder is writable to safely write the CSV report later
     if not check_write_permission(OUTPUT_FOLDER):
         console.print(f"[bold red][ERR] Brak uprawnień do zapisu w folderze wyjściowym (Output): {escape(str(OUTPUT_FOLDER))}[/bold red]")
         sys.exit(1)
         
-    # 6. Check if Archive folder is writable
+    # 4. Ensure the Archive folder is writable to safely copy run files
     if not check_write_permission(ARCHIVE_FOLDER):
         console.print(f"[bold red][ERR] Brak uprawnień do zapisu w folderze archiwum (Archive): {escape(str(ARCHIVE_FOLDER))}[/bold red]")
         sys.exit(1)
@@ -99,16 +106,37 @@ def run_preflight_checks():
     console.print("         [green]✓[/green] Wstępne testy bezpieczeństwa zakończone pomyślnie.\n")
 
 def parse_number(val_str):
+    """
+    Parses a string representing a decimal number into a float.
+    Handles European formatting where '.' is a thousands separator and ',' is 
+    the decimal separator (e.g., '23.080,000' -> 23080.0, or '3,63' -> 3.63).
+    
+    Args:
+        val_str (str): The raw string extracted from the PDF.
+        
+    Returns:
+        float: The parsed float value, defaulting to 0.0 on ValueError.
+    """
     if not val_str:
         return 0.0
-    val_str = val_str.replace('.', '')
-    val_str = val_str.replace(',', '.')
+    val_str = val_str.replace('.', '')  # Remove thousands separators
+    val_str = val_str.replace(',', '.')  # Standardize decimal point to Python float format
     try:
         return float(val_str)
     except ValueError:
         return 0.0
 
 def prompt_date(prompt_text):
+    """
+    Prompts the user in the terminal to enter a date in DD.MM.YYYY format.
+    Validates that the input represents a valid date and is not in the future.
+    
+    Args:
+        prompt_text (str): The text message shown to the user.
+        
+    Returns:
+        datetime.date: The validated date object.
+    """
     while True:
         console.print(prompt_text, end="")
         date_str = input().strip()
@@ -122,16 +150,33 @@ def prompt_date(prompt_text):
             console.print("         [red]Nieprawidłowy format daty. Użyj formatu DD.MM.YYYY[/red]\n")
 
 def extract_pdf_data(pdf_path):
+    """
+    Extracts relevant delivery metadata, weights, and precious metal rates 
+    from a single PDF document.
+    
+    The layout parser is designed to handle multiple languages (EN, DE, SK)
+    and is resilient to OCR accent loss or spacing variation:
+    - Accent variations (e.g., 'á', 'ť', 'č', 'š') are supported using regex classes.
+    - Key weight fields ('Wet weight', 'Moisture', 'Dry weight') are mapped to synonyms.
+    - Precious metals (Ag, Au, Pd, Pt) are matched on their element code followed by 'g/t'.
+    
+    Args:
+        pdf_path (pathlib.Path): Absolute path to the PDF file.
+        
+    Returns:
+        tuple: (data_dict, error_string)
+               - If success: (dict with values, None)
+               - If failure: (None, error description string)
+    """
     try:
         with pdfplumber.open(pdf_path) as pdf:
             text = "\n".join(page.extract_text() or "" for page in pdf.pages)
     except Exception as e:
         return None, f"Nie można otworzyć lub odczytać pliku PDF: {str(e)}"
 
-    # Date of receipt (First match of specific labels, fallback to first date found)
+    # 1. Date of receipt extraction
+    # The primary check searches for specific labels denoting receiving date in three languages.
     receipt_date_str = None
-    
-    # Primary check: Specific labels
     label_matches = re.findall(
         r"(?:Date of receipt|Eingangsdatum|D[aá]tum prijatia|D[aá]tum dodania|D[aá]tum doru[cč]enia)\s*:\s*(\d{2}\.\d{2}\.\d{4})", 
         text, re.IGNORECASE
@@ -139,7 +184,8 @@ def extract_pdf_data(pdf_path):
     if label_matches:
         receipt_date_str = label_matches[0]
     else:
-        # Fallback check: First DD.MM.YYYY date in the document
+        # Fallback check: extract the first date matching DD.MM.YYYY pattern found in the document text.
+        # This acts as an emergency default when receiving-date labels are missing or formatted oddly.
         fallback_matches = re.findall(r"\b(\d{2}\.\d{2}\.\d{4})\b", text)
         if fallback_matches:
             receipt_date_str = fallback_matches[0]
@@ -147,14 +193,16 @@ def extract_pdf_data(pdf_path):
     if not receipt_date_str:
         return None, "Brak lub nieczytelna data dostawy/otrzymania"
     
-    # Position
+    # 2. Position extraction
+    # Matches patterns like 'Pos. 01' or 'Pos 1' to derive the multi-delivery split ranking.
     pos_match = re.search(r"Pos\.?\s*(\d+)", text)
     if not pos_match:
         return None, "Brak lub nieczytelny numer pozycji (Pos.)"
     pos = int(pos_match.group(1))
 
-    # Weight fields
-    # Match wet weight, Nassgewicht (DE), or mokrá/vlhká hmotnosť (SK)
+    # 3. Weight fields extraction
+    # Match wet weight: Wet weight, Nassgewicht (DE), mokrá/vlhká hmotnosť (SK), Feuchtgewicht, or hmotnosť za mokra
+    # Allows optional unit '[kg]' and arbitrary whitespace before the colon.
     ww_match = re.search(
         r"(?:Wet[ \t]*weight|Nassgewicht|mokr[aá][ \t]*hmotnos[tť]|vlhk[aá][ \t]*hmotnos[tť]|Feuchtgewicht|hmotnos[tť][ \t]*za[ \t]*mokra)"
         r"(?:[ \t]*\[?kg\]?)?[ \t]*:[ \t]*([\d.,]+)",
@@ -166,8 +214,9 @@ def extract_pdf_data(pdf_path):
     if wet_weight <= 0.0:
         return None, f"Nieprawidłowa waga mokra: {wet_weight}"
 
+    # Moisture percentage (H2O): Moisture, Nässe (DE), Feuchtigkeit (DE), Feuchte, or vlhkosť (SK)
+    # Allows optional unit '[%]' and arbitrary whitespace. Default to 0.0 if omitted.
     moisture = 0.0
-    # Match moisture, Nässe (DE), Feuchtigkeit (DE), or vlhkosť (SK)
     m_match = re.search(
         r"(?:Moisture|N[aä]sse|Feuchtigkeit|Feuchte|vlhkos[tť])"
         r"(?:[ \t]*\[?%\]?)?[ \t]*:[ \t]*([\d.,]+)",
@@ -176,7 +225,7 @@ def extract_pdf_data(pdf_path):
     if m_match:
         moisture = parse_number(m_match.group(1))
 
-    # Match dry weight, Trockengewicht (DE), or suchá hmotnosť/sušina (SK)
+    # Match dry weight: Dry weight, Trockengewicht (DE), suchá hmotnosť (SK), sušina (SK), or hmotnosť za sucha
     dw_match = re.search(
         r"(?:Dry[ \t]*weight|Trockengewicht|such[aá][ \t]*hmotnos[tť]|su[sš]ina|hmotnos[tť][ \t]*za[ \t]*sucha)"
         r"(?:[ \t]*\[?kg\]?)?[ \t]*:[ \t]*([\d.,]+)",
@@ -188,7 +237,7 @@ def extract_pdf_data(pdf_path):
     if dry_weight <= 0.0:
         return None, f"Invalid Dry weight: {dry_weight}"
 
-    # Precious metals
+    # 4. Precious metals (g/t - grams per metric ton) extraction
     ag = au = pd = pt = 0.0
     ag_match = re.search(r"\bAg\s+([\d.,]+)\s*g/t", text, re.IGNORECASE)
     if ag_match: ag = parse_number(ag_match.group(1))
@@ -202,6 +251,7 @@ def extract_pdf_data(pdf_path):
     pt_match = re.search(r"\bPt\s+([\d.,]+)\s*g/t", text, re.IGNORECASE)
     if pt_match: pt = parse_number(pt_match.group(1))
     
+    # Validate date format to date object conversion
     try:
         dt = datetime.datetime.strptime(receipt_date_str, "%d.%m.%Y").date()
     except:
@@ -226,19 +276,21 @@ def main():
         console.print("  Delivery Protocol Analyzer (Analizator Protokołów)")
         console.print("─────────────────────────────────────────────\n")
         
+        # 1. Run Preflight checks (folder existences, folder emptiness, write permissions)
         run_preflight_checks()
 
         console.print("  Konfiguracja uruchomienia:\n")
-        console.print(f"  \\[1/4]  Folder wyjściowy (Output) \\[{escape(str(OUTPUT_FOLDER))}]: ↵\n         [green]✓[/green] potwierdzono\n")
-        console.print(f"  \\[2/4]  Folder przejściowy (Dropzone): {escape(str(DROPZONE_FOLDER))}\n         [green]✓[/green] znaleziono\n")
+        console.print(f"  \\[1/3]  Folder wyjściowy (Output) \\[{escape(str(OUTPUT_FOLDER))}]: ↵\n         [green]✓[/green] potwierdzono\n")
         
-        date_from = prompt_date("  [3/4]  Data od (DD.MM.YYYY): ")
-        date_to = prompt_date("  [4/4]  Data do (DD.MM.YYYY): ")
+        # 2. Prompt for date filter window
+        date_from = prompt_date("  [2/3]  Data od (DD.MM.YYYY): ")
+        date_to = prompt_date("  [3/3]  Data do (DD.MM.YYYY): ")
         
         if date_to < date_from:
             console.print("[bold red]Data końcowa (do) musi być późniejsza lub równa dacie początkowej (od). Przerwano.[/bold red]")
             sys.exit(1)
 
+        # 3. Confirm start with summary info
         console.print("─────────────────────────────────────────────")
         console.print("  Gotowy do uruchomienia")
         console.print(f"  Zakres:    {date_from.strftime('%d.%m.%Y')} → {date_to.strftime('%d.%m.%Y')}")
@@ -248,58 +300,59 @@ def main():
         input()
         console.print("  Przetwarzanie...\n")
 
-        dropzone = pathlib.Path(DROPZONE_FOLDER)
-        if not dropzone.exists():
-            console.print("[red][ERR] Nie znaleziono folderu przejściowego (Dropzone).[/red]")
-            sys.exit(1)
+        master_dir = pathlib.Path(MASTER_FOLDER)
             
         result_rows = []
+        successfully_processed_files = []  # List of PDFs that parsed successfully and fell inside the date window
+        failed_files = []                  # List of PDFs that encountered parse errors
         protocols_processed = 0
         protocols_excluded = 0
         protocols_failed = 0
         deliveries_included = set()
         
-        # Dynamically discover supplier directories inside the dropzone
+        # 4. Dynamically discover supplier directories inside the Master folder.
+        # Finds any folder path containing a 4-digit subfolder (representing the Year directory level)
+        # and defines the parent folder of that directory as a Supplier directory.
         supplier_dirs = []
-        for p in dropzone.rglob("*"):
+        for p in master_dir.rglob("*"):
             if p.is_dir() and re.match(r"^\d{4}$", p.name):
                 sup_dir = p.parent
                 if sup_dir not in supplier_dirs:
                     supplier_dirs.append(sup_dir)
         supplier_dirs = sorted(supplier_dirs, key=lambda x: x.name)
 
-        # Traverse Supplier -> Year -> Month -> Delivery
+        # 5. Traverse files using standard schema: Supplier -> Year -> Month -> Delivery
         for supplier_dir in supplier_dirs:
+            # Match 4-digit Year directory names (e.g., 2026)
             for year_dir in sorted(d for d in supplier_dir.iterdir() if d.is_dir() and re.match(r"^\d{4}$", d.name)):
+                # Match 2-digit Month directory names (e.g., 01 to 12)
                 for month_dir in sorted(d for d in year_dir.iterdir() if d.is_dir() and re.match(r"^\d{2}$", d.name)):
+                    # Traverse individual Delivery subdirectories
                     for delivery_dir in sorted(d for d in month_dir.iterdir() if d.is_dir()):
                         
+                        # Gather all files in the delivery directory with '.pdf' extension containing 'sampling protocol' (case insensitive)
                         pdf_files = [f for f in delivery_dir.iterdir() if f.is_file() and f.suffix.lower() == '.pdf' and 'sampling protocol' in f.name.lower()]
                         if not pdf_files:
                             continue
                             
-                        # Duplicate Position Check Before Processing
+                        # PRE-PROCESS: Check for duplicate delivery position numbers.
+                        # Having multiple files claim the same position (e.g., two PDFs with "Pos. 01") inside the same delivery
+                        # directory violates data integrity and triggers a safety halt.
                         positions_seen = {}
                         pdfs_to_process = []
                         for pdf in sorted(pdf_files):
-                            # Master Verification check (failsafe)
-                            relative_path = pdf.relative_to(supplier_dir.parent)
-                            master_pdf = pathlib.Path(MASTER_FOLDER) / relative_path
-                            if not master_pdf.exists():
-                                console.print(f"\n[bold red][ERR] Brak oryginału w bazie Master: {escape(str(master_pdf))}[/bold red]")
-                                console.print(f"  Ten plik istnieje w folderze Dropzone, ale brakuje go w folderze Master.")
-                                console.print(f"  Upewnij się, że plik został skopiowany, a nie przeniesiony.")
-                                sys.exit(1)
-
                             data, err_reason = extract_pdf_data(pdf)
                             if err_reason:
+                                # Non-halting fail-safe strategy: Log failure and continue processing remaining PDFs.
                                 console.print(f"  [red][FAIL][/red] {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(pdf.name)}  →  [red]{escape(err_reason)}[/red]")
                                 protocols_failed += 1
                                 protocols_processed += 1
+                                failed_files.append(pdf)
                                 continue
 
                             pos = data['pos']
                             if pos in positions_seen:
+                                # Halting safety check: halt if duplicate positions are detected within a single delivery directory.
                                 console.print(f"\n[bold red][ERR] Uruchomienie przerwane — wykryto zduplikowany protokół[/bold red]")
                                 console.print(f"  Katalog dostawy: {escape(str(delivery_dir))}")
                                 console.print(f"  Konfliktujące pliki: {escape(positions_seen[pos].name)} oraz {escape(pdf.name)} oba zgłaszają pozycję Pos. {pos}")
@@ -309,6 +362,9 @@ def main():
                                 
                         is_multi_position = len(pdf_files) > 1
                         
+                        # 6. Derive Smelter Code (BRX/Brixlegg or KK/Kovohuty)
+                        # Rule: If the delivery folder name begins with the last 2 digits of the Year folder (e.g. '26' for Year 2026),
+                        # the smelter code is 'BRX'. Otherwise, it defaults to 'KK'.
                         year_str = year_dir.name
                         year_prefix = year_str[-2:] if len(year_str) >= 2 else ""
                         
@@ -317,17 +373,22 @@ def main():
                         else:
                             smelter_code = 'KK'
                             
+                        # 7. Process files that parsed successfully
                         for pdf, data in pdfs_to_process:
                             protocols_processed += 1
                             
+                            # Filter based on the selected Date Window
                             if not (date_from <= data['date_dt'] <= date_to):
                                 protocols_excluded += 1
                                 console.print(f"  \\[--]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_dir.name)}  →  otrzymano {data['date_str']}  (poza zakresem)")
                                 continue
                                 
+                            # If there are multiple positions, append the position suffix (e.g., DeliveryName-1)
                             delivery_number = f"{delivery_dir.name}-{data['pos']}" if is_multi_position else delivery_dir.name
                             deliveries_included.add(delivery_dir.name)
                             
+                            # Calculate precious metal content in kilograms: (g/t * Dry Weight kg) / 1,000,000
+                            # Rounded to 5 decimal places.
                             ag_kg = round((data['ag_gt'] * data['dry_weight']) / 1000000.0, 5)
                             au_kg = round((data['au_gt'] * data['dry_weight']) / 1000000.0, 5)
                             pd_kg = round((data['pd_gt'] * data['dry_weight']) / 1000000.0, 5)
@@ -347,23 +408,29 @@ def main():
                                 'pt_kg': pt_kg
                             })
                             console.print(f"  \\[OK]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_number)}  →  otrzymano {data['date_str']}")
+                            successfully_processed_files.append(pdf)
 
-        # SORTING
+        # 8. SORTING: Sort result rows
+        # Primary: Smelter Code (BRX first, then KK)
+        # Secondary: Numeric representation of delivery folder name (lowest to highest)
+        # Tertiary: Position (Pos.) number
         def get_sort_key(x):
             base_str = x['delivery_number'].split('-')[0]
             try:
                 base_val = int(base_str)
             except ValueError:
-                base_val = base_str
+                base_val = base_str  # Fallback to string comparison if not numeric
             return (x['smelter_code'], base_val, x['pos'])
 
         result_rows.sort(key=get_sort_key)
         
+        # 9. EXCEL COMPATIBILITY CSV GENERATION
         out_folder = pathlib.Path(OUTPUT_FOLDER)
         out_folder.mkdir(parents=True, exist_ok=True)
         out_name = f"DeliveryReport_{date_from.strftime('%d%m%Y')}_{date_to.strftime('%d%m%Y')}.csv"
         out_path = out_folder / out_name
         
+        # Prevent overwriting of existing reports by appending a counter suffix (e.g. _2, _3)
         counter = 2
         while out_path.exists():
             out_name = f"DeliveryReport_{date_from.strftime('%d%m%Y')}_{date_to.strftime('%d%m%Y')}_{counter}.csv"
@@ -373,12 +440,14 @@ def main():
         if result_rows:
             with open(out_path, 'w', encoding='utf-8', newline='') as csvfile:
                 fieldnames = ['Lp', 'Delivery number', 'Delivery date', 'Smelter code', 'Quantity kg', 'H2O[%]', 'Dry quant. kg', 'Ag kg', 'Au kg', 'Pd kg', 'Pt kg']
+                # Semicolon delimiter ensures direct loading in European regional versions of Excel
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
                 writer.writeheader()
                 
                 tot_q = tot_d = tot_ag = tot_au = tot_pd = tot_pt = 0.0
                 
                 for idx, row in enumerate(result_rows, 1):
+                    # Replace dots with commas for decimal points to support regional Excel localization
                     writer.writerow({
                         'Lp': idx,
                         'Delivery number': row['delivery_number'],
@@ -400,7 +469,7 @@ def main():
                     tot_pd += row['pd_kg']
                     tot_pt += row['pt_kg']
                     
-                # Write Totals Row
+                # Write Totals Row at the bottom of the CSV
                 writer.writerow({
                     'Lp': 'Total:',
                     'Delivery number': '',
@@ -427,7 +496,7 @@ def main():
         if not result_rows:
             console.print("─────────────────────────────────────────────")
             console.print("[yellow][WARN] Nie znaleziono pasujących protokołów w wybranym zakresie dat.[/yellow]")
-            console.print("  Raport nie został wygenerowany, a pliki w folderze Dropzone pozostały nienaruszone.")
+            console.print("  Raport nie został wygenerowany.")
             console.print("─────────────────────────────────────────────")
             return
 
@@ -435,52 +504,75 @@ def main():
         console.print(f"  {out_path}", markup=False)
         console.print("─────────────────────────────────────────────")
 
-        # Determine unique archive folder name
+        # 10. ARCHIVING LOGIC
+        # Generates a unique archive name based on the run counts (e.g. samples_run_X and failed_samples_run_X)
+        # to ensure previous archives are not overwritten.
         base_name = "samples_run"
         target_archive = pathlib.Path(ARCHIVE_FOLDER) / base_name
+        target_archive_failed = pathlib.Path(ARCHIVE_FOLDER) / "failed_samples_run"
         counter = 2
-        while target_archive.exists():
+        while target_archive.exists() or target_archive_failed.exists():
             target_archive = pathlib.Path(ARCHIVE_FOLDER) / f"{base_name}_{counter}"
+            target_archive_failed = pathlib.Path(ARCHIVE_FOLDER) / f"failed_{base_name}_{counter}"
             counter += 1
 
-        # Create target archive directory
-        target_archive.mkdir(parents=True, exist_ok=True)
+        # Copy successfully processed files to successful archive folder, maintaining nested folder structure
+        if successfully_processed_files:
+            target_archive.mkdir(parents=True, exist_ok=True)
+            for file_path in successfully_processed_files:
+                try:
+                    rel_path = file_path.relative_to(master_dir)
+                    dest_path = target_archive / rel_path
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(file_path), str(dest_path))
+                except Exception as e:
+                    console.print(f"  [yellow]Ostrzeżenie: Nie można skopiować {file_path.name} do archiwum: {e}[/yellow]")
 
-        # Move the unignored contents of the dropzone directory to archive
-        for item in pathlib.Path(DROPZONE_FOLDER).iterdir():
-            if item.name in (".gitkeep", ".safe_dropzone", ".DS_Store"):
-                continue
-            try:
-                shutil.move(str(item), str(target_archive / item.name))
-            except Exception as e:
-                console.print(f"  [yellow]Ostrzeżenie: Nie można przenieść {item.name} do archiwum: {e}[/yellow]")
+        # Copy failed files to failed archive folder, maintaining nested folder structure
+        if failed_files:
+            target_archive_failed.mkdir(parents=True, exist_ok=True)
+            for file_path in failed_files:
+                try:
+                    rel_path = file_path.relative_to(master_dir)
+                    dest_path = target_archive_failed / rel_path
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(file_path), str(dest_path))
+                except Exception as e:
+                    console.print(f"  [yellow]Ostrzeżenie: Nie można skopiować błędnego {file_path.name} do archiwum: {e}[/yellow]")
 
-        # Post-run prompt for verification and archive deletion
+        # 11. POST-RUN VERIFICATION PROMPT
+        # Prompts the user to review the CSV report.
+        # - Pressing ENTER removes the copied archives to save disk space.
+        # - Pressing CTRL+C aborts cleanup, leaving the copies in the archive/ folder.
         console.print("\n─────────────────────────────────────────────")
         console.print("[yellow]  Weryfikacja po uruchomieniu i czyszczenie archiwum[/yellow]")
         console.print("─────────────────────────────────────────────")
         console.print("  Sprawdź, czy wygenerowane wyniki CSV są poprawne.")
-        console.print("  Jeśli chcesz odzyskać pliki z tego uruchomienia, są one tymczasowo zapisane w:")
-        console.print(f"  {escape(str(target_archive))}", markup=False)
+        console.print("  Skopiowane pliki z tego uruchomienia są tymczasowo zapisane w:")
+        console.print(f"  Pomyślne: {escape(str(target_archive))}", markup=False)
+        if failed_files:
+            console.print(f"  Błędne:   {escape(str(target_archive_failed))}", markup=False)
         console.print("─────────────────────────────────────────────")
-        console.print("  [green]•[/green] Jeśli wyniki są poprawne i nie potrzebujesz plików z tego uruchomienia,")
-        console.print("    naciśnij [bold green]Enter[/bold green], aby usunąć je z archiwum.")
-        console.print("  [red]•[/red] Jeśli chcesz zachować lub odzyskać te pliki, naciśnij teraz [bold red]Ctrl+C[/bold red].")
+        console.print("  [green]•[/green] Jeśli wyniki są poprawne i nie potrzebujesz tych plików,")
+        console.print("    naciśnij [bold green]Enter[/bold green], aby usunąć kopie z archiwum.")
+        console.print("  [red]•[/red] Jeśli chcesz zachować te kopie do przeglądu, naciśnij teraz [bold red]Ctrl+C[/bold red].")
         console.print("─────────────────────────────────────────────")
         console.print("  Twój wybór (Enter aby usunąć, Ctrl+C aby zachować): ", end="")
         input()
         
-        # User pressed Enter, empty the target archive folder
+        # User confirmed cleanup by pressing Enter
         try:
             if target_archive.exists():
                 shutil.rmtree(str(target_archive))
-            console.print("  [green]✓[/green] Folder archiwum został pomyślnie wyczyszczony.")
+            if target_archive_failed.exists():
+                shutil.rmtree(str(target_archive_failed))
+            console.print("  [green]✓[/green] Foldery archiwum zostały pomyślnie usunięte.")
         except Exception as ex:
             console.print(f"  [yellow]Ostrzeżenie: Nie można usunąć katalogu archiwum: {ex}[/yellow]")
         console.print("─────────────────────────────────────────────")
 
     except KeyboardInterrupt:
-        console.print("\n\n[yellow]Uruchomienie przerwane przez użytkownika.[/yellow]")
+        console.print("\n\n[yellow]Uruchomienie przerwane przez użytkownika. Kopie plików pozostały w archiwum.[/yellow]")
         sys.exit(0)
     except Exception as e:
         console.print(f"\n[bold red][ERR] Nieoczekiwany błąd: {escape(str(e))}[/bold red]")
