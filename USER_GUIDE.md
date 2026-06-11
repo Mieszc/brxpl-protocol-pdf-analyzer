@@ -61,11 +61,7 @@ If the developer changes the helper libraries, make sure the helper environment 
 To make sure your original files are never altered, deleted, or misplaced, the tool uses a safe 3-folder setup:
 
 * **Master Folder**: The folder containing your actual original database. **The tool reads directly from here but never changes anything.**
-* **Archive Folder (e.g., `archive/`)**: When the tool successfully finishes, it automatically copies all successfully processed and failed files here as a safeguard, retaining their original structure. You can review them here.
 * **Output Folder**: The folder where your final Excel spreadsheets are saved.
-
-> [!NOTE]
-> There is no longer a "Dropzone". Simply run the program on your Master database, and it will safely read the data and sort copies into the Archive.
 
 ---
 
@@ -115,15 +111,11 @@ After answering the questions, the tool displays a summary:
 
 ---
 
-## 5. Verifying Your Results & Archive Cleanup
+## 5. Verifying Your Results
 
-After the tool finishes and successfully writes the Excel-compatible spreadsheet, it will present a confirmation prompt in the terminal to help you manage your computer's disk space:
+After the tool finishes and successfully writes the Excel-compatible spreadsheet:
 
 1. **Verify the spreadsheet:** Open the generated CSV in Excel and confirm that the numbers match your expectations.
-2. **Review your files:** Copies of successfully processed PDFs are saved in `archive/samples_run_X`, and any failed files are sorted into `archive/failed_samples_run_X`. You can find all relevant files from this run there if you need to review them.
-3. **Decide on cleanup:**
-   * **If the results are correct (Delete copies):** Press **Enter**. The tool will automatically delete these temporary archive folders to prevent them from eating your computer's disk space over time. Your original database is safe.
-   * **If you need to keep or retrieve the files (Keep copies):** Press **Ctrl+C**. This stops the cleanup script and leaves the copied PDFs in the `archive/` directory intact.
 
 ---
 
@@ -159,7 +151,7 @@ Once deactivated, you can safely close your Terminal, Command Prompt, or PowerSh
 
 The tool lists each file it checks in real time:
 
-* **`[OK]`**: The PDF was read successfully, added to the spreadsheet, and its copy will be added to the successful archive.
+* **`[OK]`**: The PDF was read successfully and added to the spreadsheet.
   ```text
   [OK]  KK_Supplier / 2026 / 56589-1  →  finalized 15.05.2026
   ```
@@ -205,7 +197,6 @@ DeliveryReport_{DDMMYYYY}_{DDMMYYYY}.csv
 The default folders are set in `analyze.py` under the `# PATH CONFIGURATION` section:
 * `OUTPUT_FOLDER`: Default report destination.
 * `MASTER_FOLDER`: The original database (safety reference).
-* `ARCHIVE_FOLDER`: Path to the completed archive directory.
 
 ### Windows Path Configuration Note
 On Windows, folder paths use backslashes (`\`). To prevent Python from interpreting them as escape characters, write them as **raw string literals** by prefixing the path string with `r`:
@@ -213,5 +204,4 @@ On Windows, folder paths use backslashes (`\`). To prevent Python from interpret
 ```python
 OUTPUT_FOLDER = r"C:\Users\Jan\Documents\DeliveryReports"
 MASTER_FOLDER = r"C:\Users\Jan\Desktop\brxpl\Dostawcy"
-ARCHIVE_FOLDER = r"C:\Users\Jan\Desktop\mlabsai-work-projects\clients\brxpl-spzoo\smapling-protocol-analyzer\brxpl-protocol-pdf-analyzer\archive"
 ```

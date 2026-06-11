@@ -129,7 +129,7 @@ A constant `OUTPUT_FOLDER` is defined at the top of `analyze.py`. The developer 
 
 To ensure original data remains secure and untouched, the system implements a strict read-only folder contract:
 * **Master Folder** (`MASTER_FOLDER`): The original database of all supplier folders. **The script reads files directly from here but never alters, moves, or deletes anything.**
-* **Archive Folder** (`ARCHIVE_FOLDER`): Holds copies of successfully processed files and failed files temporarily after a successful run.
+* **Output Folder** (`OUTPUT_FOLDER`): The destination directory for final CSV reports.
 
 The master folder expects the following tree:
 ```
@@ -279,7 +279,7 @@ FUNCTION run(date_from, date_to):
 
   1. Validate path settings and folder permissions:
      - Master Folder exists and contains files.
-     - Output & Archive Folders are writable.
+     - Output Folder is writable.
      Halt with clean error on pre-flight failure (see Section 11).
 
   2. suppliers = sorted subdirectories of Master Folder (alphabetical)
@@ -287,8 +287,6 @@ FUNCTION run(date_from, date_to):
   3. years_needed = calendar years spanned by [date_from, date_to]
 
   4. result_rows = []
-     successfully_processed_files = []
-     failed_files = []
      protocols_processed = 0
      protocols_excluded = 0
      protocols_failed = 0
@@ -324,7 +322,6 @@ FUNCTION run(date_from, date_to):
                 IF parse fails (e.g. unreadable file or missing weight fields):
                   - Log red [FAIL] message in terminal with specific error reason.
                   - protocols_failed += 1
-                  - failed_files.append(pdf_file)
                   - CONTINUE (exclude the file from CSV but continue execution)
 
                IF date NOT in [date_from, date_to]:
@@ -342,7 +339,6 @@ FUNCTION run(date_from, date_to):
                   ag_kg, au_kg, pd_kg, pt_kg
                 })
                 - Log [OK] status in terminal.
-                - successfully_processed_files.append(pdf_file)
 
   6. SORT result_rows:
        primary:   smelter_code ascending
@@ -356,14 +352,6 @@ FUNCTION run(date_from, date_to):
   9. WRITE CSV (Section 9)
 
   10. PRINT run summary (processed, included, excluded, failed) to terminal.
-
-  11. ARCHIVE & CLEANUP:
-      - Create unique folders in Archive: `samples_run_X` and `failed_samples_run_X`
-      - Copy successfully processed files into `samples_run_X` maintaining original tree structure.
-      - Copy failed files into `failed_samples_run_X` maintaining original tree structure.
-      - Prompt user to verify CSV:
-        - Press Enter → delete both temporary archive folders.
-        - Press Ctrl+C → keep the temporary archive folders for review.
 ```
 
 ### 7.2 Date Range and Year Traversal

@@ -53,11 +53,7 @@ Jeżeli autor programu wprowadzi nowe funkcje wymagające aktualizacji bibliotek
 Aby zagwarantować, że Twoje oryginalne pliki PDF nigdy nie zostaną uszkodzone, usunięte ani zagubione, program korzysta z bezpiecznego zestawu 3 folderów:
 
 * **Folder Główny (Master Folder)**: Folder zawierający oryginalną, nienaruszoną bazę dokumentów. **Program tylko z niego odczytuje dane i nigdy nic w nim nie zmienia ani nie usuwa.**
-* **Folder Archiwum (`archive/`)**: Po pomyślnym zakończeniu pracy programu, wszystkie poprawnie przetworzone oraz błędne pliki są automatycznie kopiowane tutaj do oddzielnych podfolderów, z zachowaniem oryginalnej struktury katalogów. Dzięki temu zawsze możesz podejrzeć kopie plików dla danego uruchomienia.
 * **Folder Wyjściowy (Output Folder)**: Folder, w którym program zapisuje końcowe raporty w formacie CSV gotowe do otwarcia w programie Excel.
-
-> [!NOTE]
-> Z programu został usunięty koncept Dropzone. Od teraz uruchamiasz analizę bezpośrednio na bazie Master, a program wykonuje analizę tylko do odczytu, całkowicie chroniąc oryginalne pliki.
 
 ---
 
@@ -99,15 +95,11 @@ Po przejściu konfiguracji program wyświetli podsumowanie:
 
 ---
 
-## 5. Weryfikacja wyników i czyszczenie archiwum
+## 5. Weryfikacja wyników
 
-Gdy program pomyślnie przetworzy pliki i zapisze arkusz CSV, wyświetli w terminalu komunikat dotyczący zarządzania miejscem na dysku:
+Gdy program pomyślnie przetworzy pliki i zapisze arkusz CSV:
 
 1. **Zweryfikuj raport:** Otwórz nowo utworzony plik CSV w programie Excel i sprawdź, czy wagi i sumy są poprawne.
-2. **Przejrzyj kopie plików:** Pomyślnie przetworzone pliki zostały skopiowane do folderu `archive/samples_run_X`, a pliki, z którymi wystąpił błąd, do `archive/failed_samples_run_X`. Możesz tam zajrzeć, jeśli potrzebujesz sprawdzić konkretne pliki PDF.
-3. **Wybierz krok czyszczenia:**
-   * **Jeśli wyniki są poprawne (Usuń kopie z archiwum):** Naciśnij **Enter**. Program automatycznie usunie tymczasowe katalogi z folderu `archive/`, aby nie zaśmiecać dysku.
-   * **Jeśli chcesz zachować kopie plików (Zachowaj kopie):** Naciśnij **Ctrl+C**. Narzędzie zakończy działanie, pozostawiając skopiowane pliki w folderze `archive/` nienaruszone.
 
 ---
 
@@ -132,7 +124,7 @@ Teraz możesz bezpiecznie zamknąć okno programu Terminal, Wiersza poleceń lub
 
 W trakcie działania program wypisuje w terminalu status każdego sprawdzanego pliku PDF:
 
-* **`[OK]`**: Plik PDF został poprawnie odczytany, dane zostały dodane do raportu, a jego kopia zostanie zarchiwizowana do folderu pomyślnego uruchomienia.
+* **`[OK]`**: Plik PDF został poprawnie odczytany i dane zostały dodane do raportu.
   ```text
   [OK]  Cronimet Nordic / 2026 / 26002238  →  finalized 24.03.2026
   ```
@@ -178,7 +170,6 @@ DeliveryReport_{DDMMYYYY}_{DDMMYYYY}.csv
 Domyślne katalogi robocze są skonfigurowane w pliku `analyze.py` na samym początku w sekcji `# PATH CONFIGURATION`:
 * `OUTPUT_FOLDER`: Domyślna ścieżka zapisu raportów CSV.
 * `MASTER_FOLDER`: Ścieżka do oryginalnej bazy Master (zabezpieczenie).
-* `ARCHIVE_FOLDER`: Ścieżka do tymczasowego folderu archiwum.
 
 ### Uwaga dotycząca ścieżek systemowych Windows
 W systemie Windows ścieżki do folderów zawierają ukośniki wsteczne (`\`). Aby Python prawidłowo interpretował te ścieżki i nie traktował ukośników jako znaków specjalnych, poprzedź cały ciąg znaków literą `r` (tzw. raw string):
@@ -186,5 +177,4 @@ W systemie Windows ścieżki do folderów zawierają ukośniki wsteczne (`\`). A
 ```python
 OUTPUT_FOLDER = r"C:\Uzytkownicy\Jan\Dokumenty\RaportyDostaw"
 MASTER_FOLDER = r"C:\Uzytkownicy\Jan\Pulpit\brxpl\Dostawcy"
-ARCHIVE_FOLDER = r"C:\Uzytkownicy\Jan\Pulpit\brxpl-protocol-pdf-analyzer\archive"
 ```

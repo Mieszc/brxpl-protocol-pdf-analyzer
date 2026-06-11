@@ -9,19 +9,14 @@ This document provides end-to-end technical documentation for developers maintai
 The program is a modular, layout-tolerant Python CLI script (`analyze.py`) designed to scan, parse, and analyze smelter sampling protocols in PDF format, outputting the results into an Excel-ready semicolon-delimited CSV spreadsheet.
 
 ### 1.1 The Safe Folder Contract
-To protect billing databases from corruption or accidental loss, the program enforces a strict 3-folder pipeline:
+To protect billing databases from corruption or accidental loss, the program enforces a strict 2-folder pipeline:
 1. **Master Folder (`MASTER_FOLDER`)**: The baseline database of original supplier documents. **Never modified.** The script strictly reads data directly from here.
-2. **Archive Folder (`ARCHIVE_FOLDER`)**: The temporary depository where successfully processed files and failed files are copied on completion for review.
-3. **Output Folder (`OUTPUT_FOLDER`)**: The destination directory for the final CSV reports.
+2. **Output Folder (`OUTPUT_FOLDER`)**: The destination directory for the final CSV reports.
 
 ```mermaid
 graph TD
     A[Master Folder] -- Parse & Process --> C(analyze.py)
     C -- Output Report --> D[Output Folder]
-    C -- Copy Processed & Failed --> E[Archive Folder]
-    E -- User Clean-up Prompt --> F{Delete Archive Copies?}
-    F -- Yes --> G[Free Disk Space]
-    F -- No --> H[Retain Copies]
 ```
 
 ### 1.2 Traversal Logic and Smelter Code Derivation

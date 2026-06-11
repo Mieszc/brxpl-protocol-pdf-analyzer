@@ -5,13 +5,10 @@ This script automates the parsing and analysis of supplier delivery/sampling pro
 It uses pdfplumber to extract text and regular expressions to parse key metrics, outputting 
 them into an Excel-ready semicolon-delimited CSV spreadsheet.
 
-SAFE ARCHITECTURE & THE 3-FOLDER CONTRACT:
+SAFE ARCHITECTURE & THE 2-FOLDER CONTRACT:
 1. Master Folder (MASTER_FOLDER): Read-only baseline database containing the original PDFs.
    The script never modifies, moves, or deletes any files in this folder.
-2. Archive Folder (ARCHIVE_FOLDER): Copies of successfully processed PDFs are saved in a temporary run folder
-   (e.g., samples_run_X), and failed PDFs in a parallel run folder (e.g., failed_samples_run_X).
-   This directory is created to allow users to verify the files and is cleanable after execution.
-3. Output Folder (OUTPUT_FOLDER): The destination directory for final CSV reports.
+2. Output Folder (OUTPUT_FOLDER): The destination directory for final CSV reports.
 """
 
 import sys
@@ -38,7 +35,6 @@ except ImportError:
 # Default folders for workspace operations. These can be adjusted by the user as needed.
 OUTPUT_FOLDER = "/Users/MIESZKO/Desktop/mlabsai-work-projects/clients/brxpl-spzoo/output-protocols-analyzed"
 MASTER_FOLDER = "/Users/MIESZKO/Desktop/brxpl/Dostawcy"
-ARCHIVE_FOLDER = "/Users/MIESZKO/Desktop/mlabsai-work-projects/clients/brxpl-spzoo/smapling-protocol-analyzer/brxpl-protocol-pdf-analyzer/archive"
 
 # Initialize the Rich console object for colorized/formatted terminal stdout prints
 console = Console()
@@ -65,6 +61,36 @@ def check_write_permission(dir_path):
     except Exception:
         return False
 
+def find_supplier_dirs(base_dir):
+    """
+    Finds supplier directories by traversing the directory tree.
+    It only traverses directories, and avoids descending into 4-digit year folders.
+    This prevents scanning files and deep delivery subdirectories, which is extremely
+    slow on network drives (e.g., WebDAV over VPN).
+    """
+    supplier_dirs = set()
+    queue = [pathlib.Path(base_dir)]
+    
+    while queue:
+        current_dir = queue.pop(0)
+        try:
+            subdirs = []
+            has_year_subdir = False
+            for entry in current_dir.iterdir():
+                if entry.is_dir():
+                    if re.match(r"^\d{4}$", entry.name):
+                        has_year_subdir = True
+                    else:
+                        subdirs.append(entry)
+            if has_year_subdir:
+                supplier_dirs.add(current_dir)
+            else:
+                queue.extend(subdirs)
+        except Exception:
+            pass
+            
+    return sorted(list(supplier_dirs), key=lambda x: x.name)
+
 def run_preflight_checks():
     """
     Validates directories and permissions before beginning execution.
@@ -73,7 +99,6 @@ def run_preflight_checks():
     Checks:
     - Master folder exists, is a directory, and contains subfolders (is not empty).
     - Output folder is writable.
-    - Archive folder is writable.
     """
     console.print("  Uruchamianie wstępnych testów bezpieczeństwa...")
     
@@ -96,11 +121,6 @@ def run_preflight_checks():
     # 3. Ensure the Output folder is writable to safely write the CSV report later
     if not check_write_permission(OUTPUT_FOLDER):
         console.print(f"[bold red][ERR] Brak uprawnień do zapisu w folderze wyjściowym (Output): {escape(str(OUTPUT_FOLDER))}[/bold red]")
-        sys.exit(1)
-        
-    # 4. Ensure the Archive folder is writable to safely copy run files
-    if not check_write_permission(ARCHIVE_FOLDER):
-        console.print(f"[bold red][ERR] Brak uprawnień do zapisu w folderze archiwum (Archive): {escape(str(ARCHIVE_FOLDER))}[/bold red]")
         sys.exit(1)
         
     console.print("         [green]✓[/green] Wstępne testy bezpieczeństwa zakończone pomyślnie.\n")
@@ -303,30 +323,37 @@ def main():
         master_dir = pathlib.Path(MASTER_FOLDER)
             
         result_rows = []
-        successfully_processed_files = []  # List of PDFs that parsed successfully and fell inside the date window
-        failed_files = []                  # List of PDFs that encountered parse errors
         protocols_processed = 0
         protocols_excluded = 0
         protocols_failed = 0
         deliveries_included = set()
         
         # 4. Dynamically discover supplier directories inside the Master folder.
-        # Finds any folder path containing a 4-digit subfolder (representing the Year directory level)
-        # and defines the parent folder of that directory as a Supplier directory.
-        supplier_dirs = []
-        for p in master_dir.rglob("*"):
-            if p.is_dir() and re.match(r"^\d{4}$", p.name):
-                sup_dir = p.parent
-                if sup_dir not in supplier_dirs:
-                    supplier_dirs.append(sup_dir)
-        supplier_dirs = sorted(supplier_dirs, key=lambda x: x.name)
+        # Uses an optimized directory-only BFS traversal to avoid scanning deep files/folders
+        # over slow network connections (like WebDAV/VPN).
+        supplier_dirs = find_supplier_dirs(master_dir)
+
+        # Determine which calendar years are spanned by the requested date range
+        years_needed = set(range(date_from.year, date_to.year + 1))
 
         # 5. Traverse files using standard schema: Supplier -> Year -> Month -> Delivery
         for supplier_dir in supplier_dirs:
-            # Match 4-digit Year directory names (e.g., 2026)
-            for year_dir in sorted(d for d in supplier_dir.iterdir() if d.is_dir() and re.match(r"^\d{4}$", d.name)):
-                # Match 2-digit Month directory names (e.g., 01 to 12)
-                for month_dir in sorted(d for d in year_dir.iterdir() if d.is_dir() and re.match(r"^\d{2}$", d.name)):
+            # Match 4-digit Year directory names that fall within the needed years
+            for year_dir in sorted(d for d in supplier_dir.iterdir() if d.is_dir() and re.match(r"^\d{4}$", d.name) and int(d.name) in years_needed):
+                
+                # Determine which months are valid for this year to narrow traversal
+                year_val = int(year_dir.name)
+                if year_val == date_from.year and year_val == date_to.year:
+                    valid_months = set(range(date_from.month, date_to.month + 1))
+                elif year_val == date_from.year:
+                    valid_months = set(range(date_from.month, 13))
+                elif year_val == date_to.year:
+                    valid_months = set(range(1, date_to.month + 1))
+                else:
+                    valid_months = set(range(1, 13))
+
+                # Match 2-digit Month directory names that fall within the valid months
+                for month_dir in sorted(d for d in year_dir.iterdir() if d.is_dir() and re.match(r"^\d{2}$", d.name) and int(d.name) in valid_months):
                     # Traverse individual Delivery subdirectories
                     for delivery_dir in sorted(d for d in month_dir.iterdir() if d.is_dir()):
                         
@@ -347,7 +374,6 @@ def main():
                                 console.print(f"  [red][FAIL][/red] {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(pdf.name)}  →  [red]{escape(err_reason)}[/red]")
                                 protocols_failed += 1
                                 protocols_processed += 1
-                                failed_files.append(pdf)
                                 continue
 
                             pos = data['pos']
@@ -408,7 +434,6 @@ def main():
                                 'pt_kg': pt_kg
                             })
                             console.print(f"  \\[OK]  {escape(supplier_dir.name)} / {escape(year_dir.name)} / {escape(delivery_number)}  →  otrzymano {data['date_str']}")
-                            successfully_processed_files.append(pdf)
 
         # 8. SORTING: Sort result rows
         # Primary: Smelter Code (BRX first, then KK)
@@ -504,75 +529,8 @@ def main():
         console.print(f"  {out_path}", markup=False)
         console.print("─────────────────────────────────────────────")
 
-        # 10. ARCHIVING LOGIC
-        # Generates a unique archive name based on the run counts (e.g. samples_run_X and failed_samples_run_X)
-        # to ensure previous archives are not overwritten.
-        base_name = "samples_run"
-        target_archive = pathlib.Path(ARCHIVE_FOLDER) / base_name
-        target_archive_failed = pathlib.Path(ARCHIVE_FOLDER) / "failed_samples_run"
-        counter = 2
-        while target_archive.exists() or target_archive_failed.exists():
-            target_archive = pathlib.Path(ARCHIVE_FOLDER) / f"{base_name}_{counter}"
-            target_archive_failed = pathlib.Path(ARCHIVE_FOLDER) / f"failed_{base_name}_{counter}"
-            counter += 1
-
-        # Copy successfully processed files to successful archive folder, maintaining nested folder structure
-        if successfully_processed_files:
-            target_archive.mkdir(parents=True, exist_ok=True)
-            for file_path in successfully_processed_files:
-                try:
-                    rel_path = file_path.relative_to(master_dir)
-                    dest_path = target_archive / rel_path
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(str(file_path), str(dest_path))
-                except Exception as e:
-                    console.print(f"  [yellow]Ostrzeżenie: Nie można skopiować {file_path.name} do archiwum: {e}[/yellow]")
-
-        # Copy failed files to failed archive folder, maintaining nested folder structure
-        if failed_files:
-            target_archive_failed.mkdir(parents=True, exist_ok=True)
-            for file_path in failed_files:
-                try:
-                    rel_path = file_path.relative_to(master_dir)
-                    dest_path = target_archive_failed / rel_path
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(str(file_path), str(dest_path))
-                except Exception as e:
-                    console.print(f"  [yellow]Ostrzeżenie: Nie można skopiować błędnego {file_path.name} do archiwum: {e}[/yellow]")
-
-        # 11. POST-RUN VERIFICATION PROMPT
-        # Prompts the user to review the CSV report.
-        # - Pressing ENTER removes the copied archives to save disk space.
-        # - Pressing CTRL+C aborts cleanup, leaving the copies in the archive/ folder.
-        console.print("\n─────────────────────────────────────────────")
-        console.print("[yellow]  Weryfikacja po uruchomieniu i czyszczenie archiwum[/yellow]")
-        console.print("─────────────────────────────────────────────")
-        console.print("  Sprawdź, czy wygenerowane wyniki CSV są poprawne.")
-        console.print("  Skopiowane pliki z tego uruchomienia są tymczasowo zapisane w:")
-        console.print(f"  Pomyślne: {escape(str(target_archive))}", markup=False)
-        if failed_files:
-            console.print(f"  Błędne:   {escape(str(target_archive_failed))}", markup=False)
-        console.print("─────────────────────────────────────────────")
-        console.print("  [green]•[/green] Jeśli wyniki są poprawne i nie potrzebujesz tych plików,")
-        console.print("    naciśnij [bold green]Enter[/bold green], aby usunąć kopie z archiwum.")
-        console.print("  [red]•[/red] Jeśli chcesz zachować te kopie do przeglądu, naciśnij teraz [bold red]Ctrl+C[/bold red].")
-        console.print("─────────────────────────────────────────────")
-        console.print("  Twój wybór (Enter aby usunąć, Ctrl+C aby zachować): ", end="")
-        input()
-        
-        # User confirmed cleanup by pressing Enter
-        try:
-            if target_archive.exists():
-                shutil.rmtree(str(target_archive))
-            if target_archive_failed.exists():
-                shutil.rmtree(str(target_archive_failed))
-            console.print("  [green]✓[/green] Foldery archiwum zostały pomyślnie usunięte.")
-        except Exception as ex:
-            console.print(f"  [yellow]Ostrzeżenie: Nie można usunąć katalogu archiwum: {ex}[/yellow]")
-        console.print("─────────────────────────────────────────────")
-
     except KeyboardInterrupt:
-        console.print("\n\n[yellow]Uruchomienie przerwane przez użytkownika. Kopie plików pozostały w archiwum.[/yellow]")
+        console.print("\n\n[yellow]Uruchomienie przerwane przez użytkownika.[/yellow]")
         sys.exit(0)
     except Exception as e:
         console.print(f"\n[bold red][ERR] Nieoczekiwany błąd: {escape(str(e))}[/bold red]")
